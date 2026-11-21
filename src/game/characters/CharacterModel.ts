@@ -21,7 +21,7 @@ export interface CharacterLook {
 }
 
 export type Action = 'none' | 'punch' | 'swing' | 'block' | 'dodge' | 'interact' | 'phone' | 'handsUp' | 'aim' | 'talk' | 'cheer' | 'hit';
-export type WeaponVisual = 'none' | 'bat' | 'pistol' | 'smg' | 'shotgun' | 'rifle' | 'rocket';
+export type WeaponVisual = 'none' | 'bat' | 'pistol' | 'smg' | 'shotgun' | 'rifle' | 'rocket' | 'knife' | 'katana' | 'revolver' | 'microsmg' | 'autoshotgun' | 'minigun' | 'sniper' | 'grenade' | 'flamer' | 'laser';
 
 export interface AnimState {
   speed: number;
@@ -204,6 +204,57 @@ function geos() {
       new THREE.ConeGeometry(0.06, 0.16, 8).rotateX(Math.PI / 2).translate(0, -0.2, 0.83).toNonIndexed(),
       new THREE.BoxGeometry(0.04, 0.12, 0.06).translate(0, -0.3, 0.1).toNonIndexed(),
     ])!,
+    knife: mergeGeometries([
+      new THREE.BoxGeometry(0.03, 0.035, 0.1).translate(0, -0.29, 0.02),
+      new THREE.BoxGeometry(0.008, 0.035, 0.2).translate(0, -0.29, 0.17),
+    ].map((g) => g.toNonIndexed()))!,
+    katana: mergeGeometries([
+      new THREE.CylinderGeometry(0.018, 0.018, 0.24, 6).rotateX(Math.PI / 2).translate(0, -0.29, 0.0),
+      new THREE.BoxGeometry(0.09, 0.02, 0.03).translate(0, -0.29, 0.13),
+      new THREE.BoxGeometry(0.008, 0.04, 0.85).translate(0, -0.29, 0.57),
+    ].map((g) => g.toNonIndexed()))!,
+    revolver: mergeGeometries([
+      new THREE.BoxGeometry(0.04, 0.1, 0.07).translate(0, -0.29, 0.03),
+      new THREE.CylinderGeometry(0.035, 0.035, 0.07, 8).rotateX(Math.PI / 2).translate(0, -0.25, 0.1),
+      new THREE.CylinderGeometry(0.016, 0.016, 0.22, 8).rotateX(Math.PI / 2).translate(0, -0.24, 0.24),
+    ].map((g) => g.toNonIndexed()))!,
+    microsmg: mergeGeometries([
+      new THREE.BoxGeometry(0.045, 0.09, 0.26).translate(0, -0.26, 0.1),
+      new THREE.BoxGeometry(0.03, 0.18, 0.04).translate(0, -0.36, 0.04),
+    ].map((g) => g.toNonIndexed()))!,
+    autoshotgun: mergeGeometries([
+      new THREE.BoxGeometry(0.06, 0.12, 0.6).translate(0, -0.27, 0.2),
+      new THREE.CylinderGeometry(0.075, 0.075, 0.06, 12).rotateX(Math.PI / 2).translate(0, -0.37, 0.18), // drum
+      new THREE.CylinderGeometry(0.022, 0.022, 0.35, 8).rotateX(Math.PI / 2).translate(0, -0.24, 0.66),
+    ].map((g) => g.toNonIndexed()))!,
+    minigun: mergeGeometries([
+      new THREE.BoxGeometry(0.14, 0.16, 0.36).translate(0, -0.3, 0.12),
+      ...[0, 1, 2, 3, 4, 5].map((i) => new THREE.CylinderGeometry(0.018, 0.018, 0.75, 6).rotateX(Math.PI / 2).translate(Math.cos((i / 6) * Math.PI * 2) * 0.045, -0.3 + Math.sin((i / 6) * Math.PI * 2) * 0.045, 0.6)),
+      new THREE.CylinderGeometry(0.07, 0.07, 0.04, 12).rotateX(Math.PI / 2).translate(0, -0.3, 0.9),
+      new THREE.BoxGeometry(0.16, 0.2, 0.18).translate(0.12, -0.36, -0.02), // ammo box
+    ].map((g) => g.toNonIndexed()))!,
+    sniper: mergeGeometries([
+      new THREE.BoxGeometry(0.05, 0.09, 0.7).translate(0, -0.27, 0.22),
+      new THREE.CylinderGeometry(0.016, 0.016, 0.6, 8).rotateX(Math.PI / 2).translate(0, -0.25, 0.86),
+      new THREE.CylinderGeometry(0.03, 0.03, 0.3, 10).rotateX(Math.PI / 2).translate(0, -0.18, 0.25), // scope
+      new THREE.BoxGeometry(0.045, 0.08, 0.25).translate(0, -0.3, -0.22),
+    ].map((g) => g.toNonIndexed()))!,
+    grenade: mergeGeometries([
+      new THREE.CylinderGeometry(0.06, 0.06, 0.45, 10).rotateX(Math.PI / 2).translate(0, -0.24, 0.35),
+      new THREE.CylinderGeometry(0.085, 0.085, 0.15, 6).rotateX(Math.PI / 2).translate(0, -0.27, 0.12), // revolving drum
+      new THREE.BoxGeometry(0.045, 0.08, 0.25).translate(0, -0.29, -0.12),
+    ].map((g) => g.toNonIndexed()))!,
+    flamer: mergeGeometries([
+      new THREE.BoxGeometry(0.06, 0.08, 0.55).translate(0, -0.27, 0.25),
+      new THREE.CylinderGeometry(0.03, 0.04, 0.18, 8).rotateX(Math.PI / 2).translate(0, -0.27, 0.6),
+      new THREE.CylinderGeometry(0.07, 0.07, 0.3, 10).translate(0.1, -0.33, 0.1), // fuel tank
+    ].map((g) => g.toNonIndexed()))!,
+    laser: mergeGeometries([
+      new THREE.BoxGeometry(0.07, 0.11, 0.42).translate(0, -0.27, 0.16),
+      new THREE.CylinderGeometry(0.035, 0.02, 0.22, 10).rotateX(Math.PI / 2).translate(0, -0.25, 0.48),
+      new THREE.TorusGeometry(0.045, 0.012, 6, 14).translate(0, -0.25, 0.36),
+      new THREE.TorusGeometry(0.045, 0.012, 6, 14).translate(0, -0.25, 0.42),
+    ].map((g) => g.toNonIndexed()))!,
   };
   return G;
 }
@@ -211,6 +262,11 @@ function geos() {
 const weaponMat = new THREE.MeshStandardMaterial({ color: 0x1d1f22, roughness: 0.4, metalness: 0.7 });
 const rocketMat = new THREE.MeshStandardMaterial({ color: 0x4a5a2a, roughness: 0.6, metalness: 0.3 });
 const batMat = new THREE.MeshStandardMaterial({ color: 0x9a7448, roughness: 0.6 });
+const bladeMat = new THREE.MeshStandardMaterial({ color: 0xe6ebf0, roughness: 0.18, metalness: 1 });
+const flamerMat = new THREE.MeshStandardMaterial({ color: 0xb3261e, roughness: 0.45, metalness: 0.5 });
+const laserMat = new THREE.MeshStandardMaterial({ color: 0xeef3f6, roughness: 0.3, metalness: 0.4, emissive: 0x39ff88, emissiveIntensity: 0.6 });
+const goldMat = new THREE.MeshStandardMaterial({ color: 0xc9a23a, roughness: 0.25, metalness: 1 });
+const WEAPON_MATS: Partial<Record<WeaponVisual, THREE.Material>> = { bat: batMat, rocket: rocketMat, knife: bladeMat, katana: bladeMat, flamer: flamerMat, laser: laserMat, revolver: goldMat, grenade: rocketMat };
 
 /** Procedural humanoid with blended procedural animation. Root sits at the feet. */
 export class CharacterModel {
@@ -337,7 +393,7 @@ export class CharacterModel {
     }
     if (w === 'none') return;
     const g = geos();
-    this.weaponMesh = new THREE.Mesh(g[w], w === 'bat' ? batMat : w === 'rocket' ? rocketMat : weaponMat);
+    this.weaponMesh = new THREE.Mesh(g[w], WEAPON_MATS[w] ?? weaponMat);
     this.weaponMesh.castShadow = true;
     this.foreR.add(this.weaponMesh);
   }

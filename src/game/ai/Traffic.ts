@@ -15,8 +15,8 @@ export class TrafficManager {
 
   get target() {
     const g = this.g;
-    let n = 20 * this.density;
-    if (g.env.night > 0.6) n *= 0.7;
+    let n = 38 * this.density;
+    if (g.env.night > 0.6) n *= 0.8;
     if (Math.hypot(g.focus.x, g.focus.z) > 900) n *= 0.4;
     return Math.round(n);
   }
@@ -63,7 +63,7 @@ export class TrafficManager {
     const traffic = g.vehicles.list.filter((v) => v.driver === 'ai' && v.ai && v.ai.mode === 'traffic');
     this.spawnT -= dt;
     if (this.spawnT <= 0 && traffic.filter((v) => !v.spec.police).length < this.target) {
-      this.spawnT = 0.3;
+      this.spawnT = 0.12;
       this.spawnTraffic();
     }
     for (const v of g.vehicles.list) {

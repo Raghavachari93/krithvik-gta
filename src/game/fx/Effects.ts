@@ -183,6 +183,27 @@ export class Effects {
     }
     if (!flesh) this.sparks(p, 3);
   }
+  /** glowing green laser bolt drawn along a segment */
+  laser(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number) {
+    const len = Math.hypot(x1 - x0, y1 - y0, z1 - z0);
+    const n = Math.min(14, Math.ceil(len / 0.7));
+    for (let i = 0; i < n; i++) {
+      const t = i / n;
+      this.glowP.emit(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, z0 + (z1 - z0) * t, 0, 0, 0, 0.2, 0.4, 0.1, 0.3, 2.6, 0.9, 1, 0, 0);
+    }
+  }
+  zap(p: THREE.Vector3) {
+    for (let i = 0; i < 8; i++) this.glowP.emit(p.x, p.y, p.z, R() * 6, Math.random() * 4, R() * 6, 0.3, 0.25, 0.05, 0.4, 2.6, 1, 1, 1, 6);
+    this.light(p, 4, 0.08, 0x39ff88);
+  }
+  /** one puff of flamethrower fire; k = 0 at the nozzle .. 1 at max range */
+  flame(p: THREE.Vector3, vx: number, vy: number, vz: number, k: number) {
+    this.glowP.emit(p.x + R() * 0.2, p.y + R() * 0.2, p.z + R() * 0.2, vx * 0.15 + R(), vy * 0.15 + 0.8, vz * 0.15 + R(), 0.25 + Math.random() * 0.15, 0.3 + k * 1.6, 0.9 + k * 1.6, 2.4, 0.9 + Math.random() * 0.5, 0.15, 0.9, 1, -2);
+    if (k > 0.6 && Math.random() < 0.3) this.smoke(p, 0.25, 0.8);
+  }
+  blood(p: THREE.Vector3) {
+    for (let i = 0; i < 6; i++) this.smokeP.emit(p.x, p.y, p.z, R() * 2.5, Math.random() * 2, R() * 2.5, 0.4, 0.12, 0.4, 0.6, 0.04, 0.04, 0.9, 3, 8);
+  }
   muzzle(p: THREE.Vector3) {
     this.glowP.emit(p.x, p.y, p.z, 0, 0, 0, 0.05, 0.9, 0.3, 2.5, 1.8, 0.8, 1, 0, 0);
     this.light(p, 2, 0.05, 0xffc070);

@@ -202,11 +202,11 @@ export class Vehicle {
         if (vF < -0.5) a += sp.brake * thr;
         else a += sp.accel * thr * Math.max(0, 1 - (vF / sp.maxSpeed) ** 2) * (this.healthPct < 0.15 ? 0.5 : 1);
       }
-      this.boosting = !!(sp.crazy && inp.boost && thr > 0 && this.nitro > 0.02 && vF > -1);
+      this.boosting = !!((sp.crazy || sp.hyper) && inp.boost && thr > 0 && this.nitro > 0.02 && vF > -1);
       if (this.boosting) {
         a += sp.accel * 1.1 * Math.max(0, 1 - (vF / (sp.maxSpeed * 1.35)) ** 2);
         this.nitro = Math.max(0, this.nitro - h * 0.2);
-      } else if (sp.crazy) this.nitro = Math.min(1, this.nitro + h * 0.07);
+      } else if (sp.crazy || sp.hyper) this.nitro = Math.min(1, this.nitro + h * 0.07);
       if (inp.brake > 0) {
         if (vF > 0.5) a -= sp.brake * inp.brake;
         else if (engine && vF > -sp.reverse) a -= sp.accel * 0.7 * inp.brake;
@@ -565,7 +565,7 @@ export class Vehicle {
       }
     }
     this.rig.body.rotation.set(this.pitch, 0, this.roll);
-    if (sp.crazy && !this.destroyed) {
+    if ((sp.crazy || sp.hyper) && !this.destroyed) {
       this.fxT += dt;
       const thr = this.driver ? this.input.throttle : 0;
       for (const f of this.rig.flames) {

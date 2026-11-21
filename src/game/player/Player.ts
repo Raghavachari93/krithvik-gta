@@ -481,9 +481,11 @@ export class Player implements Actor {
 
   private handleCombatInput(dt: number, g: Game) {
     const inp = g.input;
-    for (const w of WEAPON_ORDER) {
-      const def = WEAPONS[w];
-      if (inp.hit(`Digit${def.slot}`) && this.inv[w].owned) this.switchWeapon(w);
+    for (let slot = 1; slot <= 8; slot++) {
+      if (!inp.hit(`Digit${slot}`) && !inp.hit(`Numpad${slot}`)) continue;
+      // pressing a number again cycles through the weapons sharing that key
+      const inSlot = WEAPON_ORDER.filter((w) => WEAPONS[w].slot === slot && this.inv[w].owned);
+      if (inSlot.length) this.switchWeapon(inSlot[(inSlot.indexOf(this.weapon) + 1) % inSlot.length]);
     }
     if (inp.hit('KeyG')) this.cycleWeapon(1);
     if (this.swimming) return;
@@ -493,7 +495,7 @@ export class Player implements Actor {
     if (inp.hit('KeyR') && !wd.melee) this.startReload(g);
     if (wd.melee) {
       if ((inp.mouseHit(0) || inp.hit('KeyK') || inp.hit('KeyZ')) && (this.action === 'none' || (this.action === 'punch' && this.actionT > 0.22))) {
-        this.action = wd.id === 'bat' ? 'swing' : 'punch';
+        this.action = wd.id === 'bat' || wd.id === 'katana' ? 'swing' : 'punch';
         this.actionSide = -this.actionSide;
         this.actionT = 0;
         this.hitDone = false;
@@ -502,7 +504,7 @@ export class Player implements Actor {
         const t = g.combat.findMeleeTarget(this, 3.5);
         if (t) this.yaw = Math.atan2(t.pos.x - this.pos.x, t.pos.z - this.pos.z);
       }
-    } else if ((wd.id === 'smg' || wd.id === 'rifle' ? inp.mouse(0) || keyFireHeld : inp.mouseHit(0) || keyFireHit) && this.fireCD <= 0 && this.reloadT <= 0 && this.action !== 'dodge') {
+    } else if ((wd.auto ? inp.mouse(0) || keyFireHeld : inp.mouseHit(0) || keyFireHit) && this.fireCD <= 0 && this.reloadT <= 0 && this.action !== 'dodge') {
       const slot = this.inv[wd.id];
       if (slot.clip <= 0) {
         if (slot.ammo > 0) this.startReload(g);
@@ -538,7 +540,7 @@ export class Player implements Actor {
     const wd = this.weaponDef;
     const slot = this.inv[wd.id];
     if (this.reloadT > 0 || slot.ammo <= 0 || slot.clip >= wd.clip) return;
-    this.reloadT = wd.id === 'shotgun' ? 1.6 : 1.1;
+    this.reloadT = wd.reload ?? 1.1;
     g.audio.reload();
   }
   private finishReload() {

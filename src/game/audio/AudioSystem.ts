@@ -218,11 +218,32 @@ export class AudioSystem {
     this.burst(o, 0.08, 'lowpass', 1200, 0.9);
   }
   gunshot(p: V3, kind: string) {
-    const o = this.out(p, 260, kind === 'shotgun' ? 1.2 : kind === 'smg' ? 0.6 : 0.85);
+    if (kind === 'laser') {
+      const o = this.out(p, 200, 0.5);
+      if (!o) return;
+      this.tone(o, 'square', 1800, 220, 0.16, 0.35);
+      this.tone(o, 'sine', 900, 120, 0.2, 0.5);
+      return;
+    }
+    if (kind === 'flamer') {
+      const o = this.out(p, 80, 0.25);
+      if (o) this.burst(o, 0.08, 'lowpass', 900, 0.8, 0.9, 200, this.brown);
+      return;
+    }
+    if (kind === 'grenade') {
+      const o = this.out(p, 120, 0.7);
+      if (!o) return;
+      this.burst(o, 0.12, 'lowpass', 900, 1, 0.8, 200);
+      this.tone(o, 'sine', 160, 60, 0.15, 0.9);
+      return;
+    }
+    const heavy = kind === 'shotgun' || kind === 'autoshotgun' || kind === 'sniper' || kind === 'revolver';
+    const quick = kind === 'smg' || kind === 'microsmg' || kind === 'minigun';
+    const o = this.out(p, kind === 'sniper' ? 400 : 260, heavy ? 1.2 : quick ? (kind === 'minigun' ? 0.45 : 0.6) : 0.85);
     if (!o) return;
-    const dur = kind === 'shotgun' ? 0.45 : kind === 'smg' ? 0.09 : 0.22;
-    this.burst(o, dur, 'lowpass', kind === 'shotgun' ? 2200 : 4200, 1.2, 0.8, 300);
-    this.tone(o, 'sine', kind === 'shotgun' ? 90 : 130, 40, dur * 0.8, 0.9);
+    const dur = kind === 'sniper' ? 0.7 : heavy ? 0.45 : quick ? (kind === 'minigun' ? 0.06 : 0.09) : 0.22;
+    this.burst(o, dur, 'lowpass', kind === 'sniper' ? 5200 : heavy ? 2200 : 4200, 1.2, 0.8, 300);
+    this.tone(o, 'sine', heavy ? 90 : 130, 40, dur * 0.8, 0.9);
   }
   impact(p: V3) {
     const o = this.out(p, 40, 0.25);

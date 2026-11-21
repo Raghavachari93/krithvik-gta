@@ -75,11 +75,17 @@ export const burntMaterial = new THREE.MeshStandardMaterial({ color: 0x1a1816, v
 const DARK = 0x16171a;
 const CHROME = 0x9aa0a8;
 
-function wheelGeo(r: number, w: number, knobby = false) {
+function wheelGeo(r: number, w: number, knobby = false, rimColor = CHROME, sporty = false) {
   const tire = colorize(new THREE.CylinderGeometry(r, r, w, 18).rotateZ(Math.PI / 2), 0x151515);
-  const rim = colorize(new THREE.CylinderGeometry(r * 0.62, r * 0.62, w + 0.02, 10).rotateZ(Math.PI / 2), CHROME);
+  const rim = colorize(new THREE.CylinderGeometry(r * (sporty ? 0.74 : 0.62), r * (sporty ? 0.74 : 0.62), w + 0.02, 14).rotateZ(Math.PI / 2), sporty ? 0x0c0c0e : rimColor);
   const spokes = colorize(new THREE.BoxGeometry(w + 0.04, r * 1.1, 0.06), 0x55595e);
   const parts = [tire, rim, spokes];
+  if (sporty) {
+    // thin multi-spoke alloy
+    parts.length = 2;
+    for (let i = 0; i < 10; i++) parts.push(colorize(new THREE.BoxGeometry(w + 0.05, r * 1.42, 0.035).rotateX((i / 10) * Math.PI), rimColor));
+    parts.push(colorize(new THREE.CylinderGeometry(r * 0.14, r * 0.14, w + 0.07, 8).rotateZ(Math.PI / 2), rimColor));
+  }
   if (knobby) {
     // chunky off-road tread blocks
     for (let i = 0; i < 16; i++) {
@@ -247,6 +253,137 @@ function buildCrazyExtras(spec: VehicleSpec, rig: { body: THREE.Group; group: TH
   return { extras: ex, flames, hoverPads };
 }
 
+const lampWhite = new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 3, 3.2), toneMapped: false });
+const lampRed = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.6, 0.05, 0.05), toneMapped: false });
+const carbonMat = new THREE.MeshStandardMaterial({ color: 0x111215, roughness: 0.35, metalness: 0.5 });
+const accentCache = new Map<number, THREE.MeshPhysicalMaterial>();
+function accentMat(c: number) {
+  let m = accentCache.get(c);
+  if (!m) {
+    m = new THREE.MeshPhysicalMaterial({ color: c, roughness: 0.3, metalness: 0.5, clearcoat: 1, clearcoatRoughness: 0.08 });
+    accentCache.set(c, m);
+  }
+  return m;
+}
+
+/** Hypercar bodywork: splitters, wings, intakes, signature lights, exhausts and brake calipers. */
+function buildHyperExtras(spec: VehicleSpec, rig: { body: THREE.Group; wheels: WheelRig[]; paint: THREE.Material }) {
+  const sh = spec.shape;
+  const L = spec.len,
+    W = spec.wid,
+    h = L / 2;
+  const ex = new THREE.Group();
+  rig.body.add(ex);
+  const flames: THREE.Mesh[] = [];
+  const acc = accentMat(spec.accent ?? 0x141518);
+  const box = (w: number, hh: number, d: number, x: number, y: number, z: number, m: THREE.Material, rx = 0, ry = 0, rz = 0) => {
+    const b = new THREE.Mesh(new THREE.BoxGeometry(w, hh, d), m);
+    b.position.set(x, y, z);
+    b.rotation.set(rx, ry, rz);
+    b.castShadow = true;
+    ex.add(b);
+    return b;
+  };
+  const cyl = (r: number, len: number, x: number, y: number, z: number, m: THREE.Material, seg = 12) => {
+    const c = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, seg).rotateX(Math.PI / 2), m);
+    c.position.set(x, y, z);
+    ex.add(c);
+    return c;
+  };
+  // body height along the bonnet (between the nose and the windscreen base)
+  const hoodY = (z: number) => sh.nose + (sh.belt - sh.nose) * Math.min(1, Math.max(0, (h - z) / (h - sh.cabFront)));
+  const hoodPitch = Math.atan2(sh.belt - sh.nose, h - sh.cabFront);
+
+  // brake calipers (hang off the steering pivot so they don't spin)
+  const caliper = accentMat(spec.hyper === 'wedge' ? 0xff6a00 : 0x1ea7ff);
+  for (const w of rig.wheels) {
+    const c = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.2, 0.3), caliper);
+    c.position.set(w.x > 0 ? -0.12 : 0.12, 0.08, 0.1);
+    w.pivot.add(c);
+  }
+  // side skirts & rear diffuser
+  for (const sx of [1, -1]) box(0.06, 0.12, L * 0.56, sx * (W / 2 + 0.01), sh.gc + 0.08, 0, acc);
+  box(W * 0.82, 0.16, 0.34, 0, sh.gc + 0.1, -h - 0.04, carbonMat);
+  for (let i = -2; i <= 2; i++) box(0.03, 0.2, 0.36, i * 0.3, sh.gc + 0.1, -h - 0.06, carbonMat);
+
+  if (spec.hyper === 'wedge') {
+    // sharp front splitter and corner intakes
+    box(W * 1.02, 0.05, 0.42, 0, sh.gc + 0.04, h - 0.05, acc);
+    for (const sx of [1, -1]) {
+      box(0.55, 0.2, 0.08, sx * (W / 2 - 0.42), sh.gc + 0.22, h, carbonMat, 0, 0, sx * 0.2);
+      // Y-shaped headlights: two slim bars meeting at an angle
+      box(0.46, 0.05, 0.05, sx * (W / 2 - 0.36), sh.nose - 0.07, h + 0.085, lampWhite, 0, 0, sx * 0.18);
+      box(0.2, 0.045, 0.05, sx * (W / 2 - 0.5), sh.nose - 0.15, h + 0.085, lampWhite, 0, 0, -sx * 0.6);
+      // big side air intakes behind the doors
+      box(0.05, 0.42, 0.8, sx * (W / 2 + 0.005), sh.belt - 0.28, sh.cabRear + 0.25, carbonMat);
+      box(0.05, 0.12, 0.7, sx * (W / 2 - 0.02), sh.belt + 0.03, sh.cabRear - 0.1, carbonMat);
+      // bonnet vents
+      box(0.3, 0.02, 0.38, sx * 0.32, hoodY(h - 0.75) + 0.02, h - 0.75, carbonMat, hoodPitch);
+      // Y-shaped tail lights
+      box(0.46, 0.05, 0.04, sx * (W / 2 - 0.38), sh.tail - 0.14, -h - 0.08, lampRed, 0, 0, sx * 0.3);
+      box(0.22, 0.05, 0.04, sx * (W / 2 - 0.5), sh.tail - 0.24, -h - 0.08, lampRed, 0, 0, -sx * 0.6);
+    }
+    // black roof spine and louvred engine cover
+    box(0.5, 0.02, sh.roofFront - sh.roofRear + 0.2, 0, sh.roofH + 0.045, (sh.roofFront + sh.roofRear) / 2, carbonMat);
+    for (let i = 0; i < 4; i++) box(W * 0.5, 0.03, 0.08, 0, sh.tail + 0.02, sh.cabRear - 0.2 - i * 0.22, carbonMat);
+    // hexagonal centre exhausts (flames on nitro)
+    for (const y of [sh.tail - 0.38, sh.tail - 0.56]) {
+      cyl(0.09, 0.3, 0, y, -h - 0.04, chromeMat, 6);
+      const f = makeFlame(0.08, 1.1);
+      f.position.set(0, y, -h - 0.2);
+      ex.add(f);
+      flames.push(f);
+    }
+  } else {
+    // horseshoe grille, flanked by big intakes, over an accent-coloured splitter
+    const gy = sh.gc + 0.3;
+    const fill = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 0.04, 20).rotateX(Math.PI / 2).scale(1, 1.15, 1), carbonMat);
+    fill.position.set(0, gy, h + 0.03);
+    ex.add(fill);
+    const arc = Math.PI * 1.65;
+    const shoe = new THREE.Mesh(new THREE.TorusGeometry(0.27, 0.035, 8, 24, arc), chromeMat);
+    shoe.rotation.z = Math.PI / 2 + (Math.PI * 2 - arc) / 2;
+    shoe.scale.set(1, 1.15, 1);
+    shoe.position.set(0, gy, h + 0.05);
+    ex.add(shoe);
+    box(W * 1.02, 0.05, 0.44, 0, sh.gc + 0.04, h - 0.05, acc);
+    for (const sx of [1, -1]) {
+      box(0.5, 0.26, 0.06, sx * 0.62, gy - 0.02, h, carbonMat);
+      // slim LED headlight bars
+      box(0.5, 0.05, 0.05, sx * (W / 2 - 0.38), sh.nose - 0.06, h + 0.085, lampWhite, 0, 0, sx * 0.12);
+      // the signature sweeping "C" line along each side, opening to the front
+      const c = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.035, 6, 20, Math.PI * 1.1).rotateZ(Math.PI * 1.45).rotateY(Math.PI / 2), acc);
+      c.position.set(sx * (W / 2 + 0.02), sh.belt - 0.22, sh.cabRear + 0.55);
+      ex.add(c);
+      box(0.05, 0.3, 0.5, sx * (W / 2 + 0.005), sh.belt - 0.26, sh.cabRear + 0.55, carbonMat);
+    }
+    // central roof fin and twin bonnet stripes in the accent colour
+    box(0.05, 0.1, 1.6, 0, sh.roofH + 0.06, sh.roofRear - 0.4, acc);
+    for (const sx of [1, -1]) box(0.08, 0.02, h - sh.cabFront, sx * 0.18, hoodY((h + sh.cabFront) / 2) + 0.015, (h + sh.cabFront) / 2, acc, hoodPitch);
+    // full-width LED tail bar and quad exhausts
+    box(W * 0.9, 0.05, 0.04, 0, sh.tail - 0.14, -h - 0.08, lampRed);
+    for (const x of [-0.27, -0.09, 0.09, 0.27]) {
+      cyl(0.06, 0.25, x, sh.gc + 0.3, -h - 0.06, chromeMat);
+      if (Math.abs(x) < 0.1) {
+        const f = makeFlame(0.07, 1.0);
+        f.position.set(x, sh.gc + 0.3, -h - 0.2);
+        ex.add(f);
+        flames.push(f);
+      }
+    }
+  }
+  if (spec.wing) {
+    const wy = sh.tail + 0.55,
+      wz = -h + 0.32;
+    box(W * 1.0, 0.06, 0.5, 0, wy, wz, carbonMat, -0.1);
+    for (const sx of [1, -1]) {
+      box(0.04, 0.22, 0.5, sx * W * 0.48, wy + 0.04, wz, carbonMat); // end plates
+      box(0.06, wy - sh.tail + 0.1, 0.14, sx * 0.45, (wy + sh.tail) / 2, wz + 0.05, carbonMat, 0.2); // struts
+    }
+  }
+  return { extras: ex, flames };
+}
+
 function buildCar(spec: VehicleSpec) {
   const sh = spec.shape;
   const L = spec.len,
@@ -339,7 +476,8 @@ function buildCar(spec: VehicleSpec) {
   const tailY = spec.cls === 'truck' ? 0.9 : sh.tail - 0.15;
   const tail = mergeGeometries([new THREE.BoxGeometry(0.42, 0.12, 0.06).translate(lx, tailY, -h - 0.01), new THREE.BoxGeometry(0.42, 0.12, 0.06).translate(-lx, tailY, -h - 0.01)])!;
   const ww = spec.crazy === 'monster' ? 0.78 : spec.crazy === 'rocket' ? 0.42 : spec.crazy === 'rod' ? 0.36 : spec.cls === 'truck' ? 0.38 : 0.26;
-  return { body, glass, head, tail, wheel: wheelGeo(sh.wheelR, ww, spec.crazy === 'monster') };
+  const wheel = spec.hyper ? wheelGeo(sh.wheelR, 0.32, false, spec.hyper === 'wedge' ? 0x232428 : 0x8a9099, true) : wheelGeo(sh.wheelR, ww, spec.crazy === 'monster');
+  return { body, glass, head, tail, wheel };
 }
 
 function buildBike(spec: VehicleSpec) {
@@ -548,6 +686,7 @@ export function buildVehicleRig(spec: VehicleSpec, color: number): VehicleRig {
   let flames: THREE.Mesh[] = [];
   let extras: THREE.Group | undefined, hoverPads: THREE.MeshBasicMaterial | undefined;
   if (spec.crazy) ({ extras, flames, hoverPads } = buildCrazyExtras(spec, { body, group, wheels, paint }));
+  if (spec.hyper) ({ extras, flames } = buildHyperExtras(spec, { body, wheels, paint }));
   let prop: THREE.Object3D | undefined;
   if (spec.plane) {
     const h = spec.len / 2;

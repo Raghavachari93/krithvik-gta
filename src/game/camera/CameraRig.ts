@@ -150,7 +150,7 @@ export class CameraRig {
     }
     let fov = this.fovBase;
     if (v) fov += clamp(v.speed / v.spec.maxSpeed, 0, 1) * 14;
-    if (p.aiming) fov -= 18;
+    if (p.aiming) fov -= p.weapon === 'sniper' ? 48 : 18;
     this.applyFov(dt, fov);
     p.syncAimPitch(this.pitch);
   }

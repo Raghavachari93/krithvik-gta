@@ -183,8 +183,8 @@ export function SettingsScreen() {
             {toggle('Dynamic shadows', 'shadows')}
             {toggle('Bloom / neon glow', 'bloom')}
             {slider('Draw distance', 'drawDistance', 600, 2400, 100, (v) => `${v} m`)}
-            {slider('Pedestrian density', 'pedDensity', 0.2, 1.6, 0.1)}
-            {slider('Traffic density', 'trafficDensity', 0.2, 1.6, 0.1)}
+            {slider('Pedestrian density', 'pedDensity', 0.2, 2.5, 0.1)}
+            {slider('Traffic density', 'trafficDensity', 0.2, 2.5, 0.1)}
             {slider('Field of view', 'fov', 55, 95, 1, (v) => `${v}°`)}
             {toggle('Show FPS', 'showFps')}
           </div>
@@ -240,12 +240,12 @@ const CONTROLS: [string, string][] = [
   ['← → ', 'Turn (walking, driving, flying)'],
   ['A D', 'Step sideways / steer'],
   ['Mouse', 'Look / aim camera (click the game first)'],
-  ['Shift', 'Sprint • nitro in crazy cars • dive in planes'],
+  ['Shift', 'Sprint • nitro in supercars & crazy cars • dive in planes'],
   ['Space', 'Jump & climb • handbrake • climb in planes'],
   ['F or Enter', 'Get in / out of cars, boats and planes'],
-  ['K or Z or left click', 'Shoot / punch (hold for rifle & SMG)'],
+  ['K or Z or left click', 'Shoot / swing (hold for automatic guns)'],
   ['G', 'Next gun'],
-  ['1 – 7', 'Pick a gun (7 = rocket launcher)'],
+  ['1 – 8', 'Weapon groups — press again to cycle: 1 melee, 2 pistols, 3 SMGs, 4 shotguns, 5 rifles & minigun, 6 sniper, 7 rocket & grenade launchers, 8 flamethrower & laser'],
   ['Right click', 'Aim (guns) / block (melee)'],
   ['R', 'Reload / next radio station'],
   ['E', 'Interact, talk, shop, start missions'],

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { Game } from '../Game';
 import { Actor } from '../characters/Actor';
 import type { Vehicle } from '../vehicles/Vehicle';
-import { WeaponDef } from './Weapons';
+import { ProjKind, WeaponDef } from './Weapons';
 
 interface Bullet {
   active: boolean;
@@ -18,8 +18,11 @@ interface Bullet {
   shooter: Actor | null;
   fromPlayer: boolean;
   speed: number;
-  explosive: boolean;
+  kind: ProjKind;
+  blast: number;
 }
+
+const PROJ_SPEED: Record<ProjKind, number> = { bullet: 260, laser: 320, rocket: 85, grenade: 48, flame: 26 };
 
 const SPEED = 260;
 const _o = new THREE.Vector3();
@@ -32,7 +35,7 @@ export class CombatSystem {
   lastShotT = -99;
 
   constructor(private g: Game) {
-    for (let i = 0; i < 160; i++) this.bullets.push({ active: false, x: 0, y: 0, z: 0, dx: 0, dy: 0, dz: 0, dist: 0, max: 0, dmg: 0, shooter: null, fromPlayer: false, speed: SPEED, explosive: false });
+    for (let i = 0; i < 260; i++) this.bullets.push({ active: false, x: 0, y: 0, z: 0, dx: 0, dy: 0, dz: 0, dist: 0, max: 0, dmg: 0, shooter: null, fromPlayer: false, speed: SPEED, kind: 'bullet', blast: 0 });
   }
 
   // ---------------- melee ----------------
@@ -72,12 +75,14 @@ export class CombatSystem {
       hitAny = true;
       _t.set(t.pos.x, t.pos.y + 1.3, t.pos.z);
       g.fx.hitPuff(_t, true);
-      g.audio.punch(t.pos, w.id === 'bat');
-      if (!blocked && (w.id === 'bat' || Math.random() < 0.25 * mult || t.health < 25) && t.alive) t.knockdown(fx * 3, fz * 3, 1.5, 1.8);
+      const heavy = w.id === 'bat' || w.id === 'katana';
+      if (w.id === 'knife' || w.id === 'katana') g.fx.blood(_t);
+      g.audio.punch(t.pos, heavy);
+      if (!blocked && (heavy || Math.random() < 0.25 * mult || t.health < 25) && t.alive) t.knockdown(fx * 3, fz * 3, 1.5, 1.8);
       if (a.isPlayer) this.onPlayerAttacked(t, t.health <= 0);
     }
     // bats damage vehicles
-    if (w.id === 'bat') {
+    if (w.id === 'bat' || w.id === 'katana') {
       for (const v of g.vehicles.list) {
         const dx = v.pos.x - a.pos.x,
           dz = v.pos.z - a.pos.z;
@@ -131,17 +136,20 @@ export class CombatSystem {
       fz = Math.cos(p.yaw);
     _o.set(p.pos.x + fx * 0.5 - fz * 0.25, p.pos.y + 1.4, p.pos.z + fz * 0.5 + fx * 0.25);
     const spread = w.spread * (g.player.aiming ? 0.5 : 1.3);
+    const kind = w.proj ?? 'bullet';
     for (let i = 0; i < w.pellets; i++) {
       _d.copy(target).sub(_o).normalize();
       _d.x += (Math.random() - 0.5) * spread * 2;
       _d.y += (Math.random() - 0.5) * spread * 2;
       _d.z += (Math.random() - 0.5) * spread * 2;
+      if (kind === 'grenade') _d.y += 0.1 + Math.min(0.25, _o.distanceTo(target) / 400); // lob it
       _d.normalize();
-      this.spawnBullet(_o, _d, w.range, w.damage, p, true, w.id === 'rocket');
+      this.spawnBullet(_o, _d, w.range, w.damage, p, true, kind, w.blast ?? 0);
     }
-    g.fx.muzzle(_o);
+    if (kind === 'laser') g.fx.light(_o, 3, 0.06, 0x39ff88);
+    else if (kind !== 'flame') g.fx.muzzle(_o);
     g.audio.gunshot(_o, w.id);
-    g.cam.shake(w.id === 'rocket' ? 0.4 : w.id === 'shotgun' ? 0.25 : 0.06);
+    g.cam.shake(w.kick ?? 0.06);
     g.progress.stat('shotsFired', 1);
     this.lastShotT = g.time;
     g.wanted.crime('shooting', p.pos.x, p.pos.z);
@@ -164,11 +172,12 @@ export class CombatSystem {
     g.audio.gunshot(_o, 'pistol');
   }
 
-  private spawnBullet(o: THREE.Vector3, d: THREE.Vector3, max: number, dmg: number, shooter: Actor | null, fromPlayer: boolean, explosive = false) {
+  private spawnBullet(o: THREE.Vector3, d: THREE.Vector3, max: number, dmg: number, shooter: Actor | null, fromPlayer: boolean, kind: ProjKind = 'bullet', blast = 0) {
     const b = this.bullets.find((x) => !x.active);
     if (!b) return;
-    b.explosive = explosive;
-    b.speed = explosive ? 85 : SPEED;
+    b.kind = kind;
+    b.blast = blast;
+    b.speed = PROJ_SPEED[kind];
     b.active = true;
     b.x = o.x;
     b.y = o.y;
@@ -187,6 +196,18 @@ export class CombatSystem {
     const g = this.g;
     for (const b of this.bullets) {
       if (!b.active) continue;
+      if (b.kind === 'grenade') {
+        // gravity bends the flight path
+        const vx = b.dx * b.speed,
+          vy = b.dy * b.speed - 20 * dt,
+          vz = b.dz * b.speed;
+        const sp = Math.hypot(vx, vy, vz);
+        b.dx = vx / sp;
+        b.dy = vy / sp;
+        b.dz = vz / sp;
+        b.speed = sp;
+        b.max = Math.min(400, Math.max(b.max, b.dist + 50));
+      }
       const step = Math.min(b.speed * dt, b.max - b.dist);
       // static world
       const hit = g.col.raycast(b.x, b.y, b.z, b.dx, b.dy, b.dz, step, true);
@@ -216,14 +237,22 @@ export class CombatSystem {
       const ex = b.x + b.dx * len,
         ey = b.y + b.dy * len,
         ez = b.z + b.dz * len;
-      g.fx.tracer(b.x, b.y, b.z, ex, ey, ez);
-      if (b.explosive) {
+      if (b.kind === 'bullet') g.fx.tracer(b.x, b.y, b.z, ex, ey, ez);
+      else if (b.kind === 'laser') g.fx.laser(b.x, b.y, b.z, ex, ey, ez);
+      else if (b.kind === 'flame') {
         _t.set(ex, ey, ez);
-        g.fx.smoke(_t, 0.5, 0.8);
-        g.fx.fire(_t, 0.4);
-        if (hitActor || hitVeh || hit || b.dist + step >= b.max - 0.01) {
+        g.fx.flame(_t, b.dx * b.speed, b.dy * b.speed, b.dz * b.speed, b.dist / b.max);
+      }
+      if (b.kind === 'rocket' || b.kind === 'grenade') {
+        _t.set(ex, ey, ez);
+        if (b.kind === 'rocket') {
+          g.fx.smoke(_t, 0.5, 0.8);
+          g.fx.fire(_t, 0.4);
+        } else g.fx.smoke(_t, 0.25, 0.35);
+        const belowGround = ey < g.col.surfaceY(ex, ez, ey + 2, 0) - 0.05;
+        if (hitActor || hitVeh || hit || belowGround || b.dist + step >= b.max - 0.01) {
           b.active = false;
-          this.explosion(_t.clone(), 8, 240, b.fromPlayer ? 'player' : null);
+          this.explosion(_t.clone(), b.blast || 8, b.kind === 'grenade' ? 200 : 240, b.fromPlayer ? 'player' : null);
         } else {
           b.x = ex;
           b.y = ey;
@@ -232,9 +261,14 @@ export class CombatSystem {
         }
         continue;
       }
+      if (b.kind === 'flame' && (hitActor || hitVeh || hit)) {
+        _t.set(ex, ey, ez);
+        g.fx.fire(_t, 0.8);
+      }
       if (hitActor) {
         _t.set(ex, ey, ez);
-        g.fx.hitPuff(_t, true);
+        if (b.kind === 'laser') g.fx.zap(_t);
+        else if (b.kind !== 'flame') g.fx.hitPuff(_t, true);
         const head = ey - hitActor.pos.y > 1.5;
         hitActor.takeDamage(b.dmg * (head ? 2 : 1), b.x, b.z, 'bullet', b.shooter, g);
         if (b.fromPlayer) {
@@ -245,8 +279,11 @@ export class CombatSystem {
         b.active = false;
       } else if (hitVeh) {
         _t.set(ex, ey, ez);
-        g.fx.sparks(_t, 4);
-        g.audio.impact(_t);
+        if (b.kind === 'laser') g.fx.zap(_t);
+        else if (b.kind !== 'flame') {
+          g.fx.sparks(_t, 4);
+          g.audio.impact(_t);
+        }
         hitVeh.damage(b.dmg * 0.9, g, b.fromPlayer);
         if (hitVeh.driver === 'player' && !b.fromPlayer && Math.random() < 0.3) g.player.takeDamage(b.dmg * 0.5, b.x, b.z, 'bullet', b.shooter, g);
         if (b.fromPlayer && hitVeh.spec.police) g.wanted.crime('assaultCop', hitVeh.pos.x, hitVeh.pos.z);
@@ -254,8 +291,11 @@ export class CombatSystem {
         b.active = false;
       } else if (hit) {
         _t.set(ex, ey, ez);
-        g.fx.hitPuff(_t, false);
-        if (Math.random() < 0.3) g.audio.impact(_t);
+        if (b.kind === 'laser') g.fx.zap(_t);
+        else if (b.kind !== 'flame') {
+          g.fx.hitPuff(_t, false);
+          if (Math.random() < 0.3) g.audio.impact(_t);
+        }
         b.active = false;
       } else {
         b.x = ex;

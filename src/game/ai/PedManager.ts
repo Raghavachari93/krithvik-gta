@@ -20,7 +20,7 @@ export class PedManager {
   get targetCount() {
     const g = this.g;
     const n = g.env.night;
-    let base = 34 * this.density;
+    let base = 62 * this.density;
     if (n > 0.6) base *= 0.6;
     if (g.env.rain > 0.5) base *= 0.6;
     const b = locateBlock(g.focus.x, g.focus.z);
