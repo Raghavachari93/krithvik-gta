@@ -1,0 +1,500 @@
+import * as THREE from 'three';
+import { clamp, damp } from '../core/math';
+
+export interface CharacterLook {
+  skin: number;
+  shirt: number;
+  pants: number;
+  shoes: number;
+  hair: number;
+  hairStyle: number; // 0 short, 1 long, 2 bald, 3 cap
+  hat?: number;
+  height: number;
+  build: number;
+  jacket?: number;
+}
+
+export type Action = 'none' | 'punch' | 'swing' | 'block' | 'dodge' | 'interact' | 'phone' | 'handsUp' | 'aim' | 'talk' | 'cheer' | 'hit';
+export type WeaponVisual = 'none' | 'bat' | 'pistol' | 'smg' | 'shotgun';
+
+export interface AnimState {
+  speed: number;
+  grounded: boolean;
+  vy: number;
+  swim: boolean;
+  action: Action;
+  actionT: number;
+  actionSide: number;
+  aimPitch: number;
+  knocked: number;
+  driving: boolean;
+  landing: number;
+  twoHanded: boolean;
+}
+
+export function defaultAnim(): AnimState {
+  return { speed: 0, grounded: true, vy: 0, swim: false, action: 'none', actionT: 0, actionSide: 1, aimPitch: 0, knocked: 0, driving: false, landing: 0, twoHanded: false };
+}
+
+// joint indices
+const J = {
+  hipsY: 0,
+  bodyRX: 1,
+  torsoRX: 2,
+  torsoRY: 3,
+  headRX: 4,
+  armLX: 5,
+  armLZ: 6,
+  armRX: 7,
+  armRZ: 8,
+  foreLX: 9,
+  foreRX: 10,
+  legLX: 11,
+  legLZ: 12,
+  legRX: 13,
+  legRZ: 14,
+  shinLX: 15,
+  shinRX: 16,
+  bodyY: 17,
+  headRY: 18,
+};
+const NJ = 19;
+
+const matCache = new Map<number, THREE.MeshStandardMaterial>();
+function mat(c: number, rough = 0.8) {
+  const k = c * 10 + Math.round(rough * 9);
+  let m = matCache.get(k);
+  if (!m) matCache.set(k, (m = new THREE.MeshStandardMaterial({ color: c, roughness: rough })));
+  return m;
+}
+
+let G: Record<string, THREE.BufferGeometry> | null = null;
+function geos() {
+  if (G) return G;
+  G = {
+    pelvis: new THREE.BoxGeometry(0.34, 0.18, 0.21).translate(0, 0.02, 0),
+    chest: new THREE.CapsuleGeometry(0.17, 0.3, 4, 10).scale(1.15, 1, 0.7).translate(0, 0.32, 0),
+    head: new THREE.SphereGeometry(0.115, 14, 10).scale(0.92, 1.08, 1).translate(0, 0.14, 0.01),
+    neck: new THREE.CylinderGeometry(0.05, 0.06, 0.12, 8).translate(0, 0.02, 0),
+    hairShort: new THREE.SphereGeometry(0.122, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.55).translate(0, 0.16, -0.005),
+    hairLong: new THREE.SphereGeometry(0.128, 12, 10, 0, Math.PI * 2, 0, Math.PI * 0.75).scale(1, 1.15, 1).translate(0, 0.13, -0.02),
+    cap: new THREE.CylinderGeometry(0.125, 0.125, 0.08, 12).translate(0, 0.22, 0),
+    brim: new THREE.BoxGeometry(0.2, 0.02, 0.12).translate(0, 0.19, 0.12),
+    upperArm: new THREE.CapsuleGeometry(0.055, 0.2, 4, 8).translate(0, -0.14, 0),
+    foreArm: new THREE.CapsuleGeometry(0.047, 0.19, 4, 8).translate(0, -0.13, 0),
+    hand: new THREE.SphereGeometry(0.052, 8, 6).scale(0.8, 1.1, 0.7).translate(0, -0.29, 0),
+    thigh: new THREE.CapsuleGeometry(0.08, 0.3, 4, 8).translate(0, -0.22, 0),
+    shin: new THREE.CapsuleGeometry(0.065, 0.31, 4, 8).translate(0, -0.21, 0),
+    foot: new THREE.BoxGeometry(0.1, 0.07, 0.24).translate(0, -0.44, 0.05),
+    // weapons
+    bat: new THREE.CylinderGeometry(0.035, 0.022, 0.85, 8).rotateX(Math.PI / 2).translate(0, -0.3, 0.38),
+    pistol: new THREE.BoxGeometry(0.04, 0.09, 0.2).translate(0, -0.27, 0.08),
+    smg: new THREE.BoxGeometry(0.05, 0.12, 0.42).translate(0, -0.27, 0.16),
+    shotgun: new THREE.BoxGeometry(0.05, 0.08, 0.85).translate(0, -0.27, 0.32),
+  };
+  return G;
+}
+
+const weaponMat = new THREE.MeshStandardMaterial({ color: 0x1d1f22, roughness: 0.4, metalness: 0.7 });
+const batMat = new THREE.MeshStandardMaterial({ color: 0x9a7448, roughness: 0.6 });
+
+/** Procedural humanoid with blended procedural animation. Root sits at the feet. */
+export class CharacterModel {
+  root = new THREE.Group();
+  body = new THREE.Group();
+  hips = new THREE.Group();
+  torso = new THREE.Group();
+  head = new THREE.Group();
+  armL = new THREE.Group();
+  armR = new THREE.Group();
+  foreL = new THREE.Group();
+  foreR = new THREE.Group();
+  legL = new THREE.Group();
+  legR = new THREE.Group();
+  shinL = new THREE.Group();
+  shinR = new THREE.Group();
+  handR = new THREE.Group();
+  private weaponMesh: THREE.Mesh | null = null;
+  private cur = new Float32Array(NJ);
+  private tgt = new Float32Array(NJ);
+  phase = 0;
+  private time = Math.random() * 10;
+  private meshes: THREE.Mesh[] = [];
+  private shadowOn = true;
+  headMeshes: THREE.Object3D[] = [];
+
+  constructor(public look: CharacterLook) {
+    const g = geos();
+    const skin = mat(look.skin, 0.7),
+      shirt = mat(look.shirt),
+      pants = mat(look.pants),
+      shoes = mat(look.shoes, 0.5),
+      hair = mat(look.hair, 0.9);
+    const add = (parent: THREE.Object3D, geo: THREE.BufferGeometry, m: THREE.Material) => {
+      const mesh = new THREE.Mesh(geo, m);
+      mesh.castShadow = true;
+      parent.add(mesh);
+      this.meshes.push(mesh);
+      return mesh;
+    };
+    this.root.add(this.body);
+    this.body.add(this.hips);
+    this.hips.position.y = 0.95;
+    add(this.hips, g.pelvis, pants);
+    this.hips.add(this.torso);
+    this.torso.position.y = 0.06;
+    add(this.torso, g.chest, look.jacket !== undefined ? mat(look.jacket) : shirt);
+    this.torso.add(this.head);
+    this.head.position.y = 0.6;
+    add(this.head, g.neck, skin);
+    this.headMeshes.push(add(this.head, g.head, skin));
+    if (look.hairStyle === 0) this.headMeshes.push(add(this.head, g.hairShort, hair));
+    if (look.hairStyle === 1) this.headMeshes.push(add(this.head, g.hairLong, hair));
+    if (look.hairStyle === 3) {
+      this.headMeshes.push(add(this.head, g.cap, mat(look.hat ?? 0x223355)));
+      this.headMeshes.push(add(this.head, g.brim, mat(look.hat ?? 0x223355)));
+    }
+    for (const [arm, fore, side] of [
+      [this.armL, this.foreL, 1],
+      [this.armR, this.foreR, -1],
+    ] as [THREE.Group, THREE.Group, number][]) {
+      this.torso.add(arm);
+      arm.position.set(0.235 * side, 0.52, 0);
+      add(arm, g.upperArm, look.jacket !== undefined ? mat(look.jacket) : shirt);
+      arm.add(fore);
+      fore.position.y = -0.29;
+      add(fore, g.foreArm, skin);
+      add(fore, g.hand, skin);
+    }
+    this.foreR.add(this.handR);
+    for (const [leg, shin, side] of [
+      [this.legL, this.shinL, 1],
+      [this.legR, this.shinR, -1],
+    ] as [THREE.Group, THREE.Group, number][]) {
+      this.hips.add(leg);
+      leg.position.set(0.1 * side, -0.02, 0);
+      add(leg, g.thigh, pants);
+      leg.add(shin);
+      shin.position.y = -0.45;
+      add(shin, g.shin, pants);
+      add(shin, g.foot, shoes);
+    }
+    this.root.scale.set(look.build, look.height, look.build);
+  }
+
+  setWeapon(w: WeaponVisual) {
+    if (this.weaponMesh) {
+      this.foreR.remove(this.weaponMesh);
+      this.weaponMesh = null;
+    }
+    if (w === 'none') return;
+    const g = geos();
+    this.weaponMesh = new THREE.Mesh(g[w], w === 'bat' ? batMat : weaponMat);
+    this.weaponMesh.castShadow = true;
+    this.foreR.add(this.weaponMesh);
+  }
+
+  setShadows(on: boolean) {
+    if (on === this.shadowOn) return;
+    this.shadowOn = on;
+    for (const m of this.meshes) m.castShadow = on;
+  }
+
+  setHeadVisible(v: boolean) {
+    for (const m of this.headMeshes) m.visible = v;
+  }
+
+  update(dt: number, s: AnimState) {
+    this.time += dt;
+    const t = this.tgt;
+    t.fill(0);
+    const sp = s.speed;
+    let rate = 14;
+
+    if (s.driving) {
+      t[J.hipsY] = -0.42;
+      t[J.legLX] = -1.45;
+      t[J.legRX] = -1.45;
+      t[J.shinLX] = 1.35;
+      t[J.shinRX] = 1.35;
+      t[J.armLX] = -0.95;
+      t[J.armRX] = -0.95;
+      t[J.armLZ] = -0.15;
+      t[J.armRZ] = 0.15;
+      t[J.foreLX] = -0.5;
+      t[J.foreRX] = -0.5;
+      t[J.torsoRX] = -0.1;
+    } else if (s.swim) {
+      const strokeRate = 1.4 + sp * 0.5;
+      this.phase += dt * strokeRate * Math.PI;
+      const p = this.phase;
+      if (sp > 0.6) {
+        t[J.bodyRX] = 1.3;
+        t[J.bodyY] = -0.5;
+        t[J.armLX] = -(p % (Math.PI * 2));
+        t[J.armRX] = -((p + Math.PI) % (Math.PI * 2));
+        t[J.foreLX] = -0.3;
+        t[J.foreRX] = -0.3;
+        t[J.legLX] = Math.sin(p * 3) * 0.35;
+        t[J.legRX] = -Math.sin(p * 3) * 0.35;
+        t[J.headRX] = -0.9;
+        rate = 30;
+      } else {
+        t[J.bodyRX] = 0.25;
+        t[J.bodyY] = -1.5;
+        t[J.armLZ] = 0.9 + Math.sin(p) * 0.5;
+        t[J.armRZ] = -0.9 - Math.sin(p) * 0.5;
+        t[J.armLX] = -0.6;
+        t[J.armRX] = -0.6;
+        t[J.legLX] = Math.sin(p * 1.3) * 0.4;
+        t[J.legRX] = -Math.sin(p * 1.3) * 0.4;
+        t[J.shinLX] = 0.4;
+        t[J.shinRX] = 0.4;
+      }
+    } else if (!s.grounded) {
+      if (s.vy > -3) {
+        // jump
+        t[J.legLX] = -0.75;
+        t[J.shinLX] = 1.1;
+        t[J.legRX] = 0.25;
+        t[J.shinRX] = 0.6;
+        t[J.armLX] = 0.4;
+        t[J.armRX] = -1.3;
+        t[J.armLZ] = 0.3;
+        t[J.armRZ] = -0.3;
+        t[J.torsoRX] = 0.15;
+      } else {
+        // falling: flail
+        const f = Math.sin(this.time * 12);
+        t[J.armLZ] = 1.6 + f * 0.3;
+        t[J.armRZ] = -1.6 + f * 0.3;
+        t[J.armLX] = -0.4;
+        t[J.armRX] = -0.4;
+        t[J.legLX] = -0.4 + f * 0.25;
+        t[J.legRX] = 0.1 - f * 0.25;
+        t[J.shinLX] = 0.7;
+        t[J.shinRX] = 0.5;
+        t[J.torsoRX] = -0.15;
+      }
+    } else {
+      if (sp > 0.15) {
+        const stride = 1.15 + sp * 0.17;
+        this.phase += ((Math.PI * 2 * sp) / (stride * 2)) * dt * 2;
+        const p = this.phase;
+        const A = Math.min(1.0, 0.25 + sp * 0.085);
+        const run = clamp((sp - 2.5) / 3, 0, 1);
+        t[J.legLX] = -Math.sin(p) * A;
+        t[J.legRX] = Math.sin(p) * A;
+        t[J.shinLX] = 0.1 + Math.max(0, Math.cos(p)) * A * (1.0 + run * 0.9);
+        t[J.shinRX] = 0.1 + Math.max(0, -Math.cos(p)) * A * (1.0 + run * 0.9);
+        t[J.armLX] = Math.sin(p) * A * 0.85;
+        t[J.armRX] = -Math.sin(p) * A * 0.85;
+        t[J.foreLX] = -0.25 - run * 1.1;
+        t[J.foreRX] = -0.25 - run * 1.1;
+        t[J.armLZ] = 0.08;
+        t[J.armRZ] = -0.08;
+        t[J.torsoRX] = 0.04 + run * 0.22;
+        t[J.torsoRY] = Math.sin(p) * 0.12 * A;
+        t[J.hipsY] = -Math.abs(Math.cos(p)) * 0.05 * A + 0.02 * A;
+        rate = 18;
+      } else {
+        const b = Math.sin(this.time * 1.8);
+        t[J.torsoRX] = b * 0.015;
+        t[J.armLZ] = 0.1 + b * 0.02;
+        t[J.armRZ] = -0.1 - b * 0.02;
+        t[J.foreLX] = -0.12;
+        t[J.foreRX] = -0.12;
+        t[J.headRY] = Math.sin(this.time * 0.4) * 0.25;
+      }
+      if (s.landing > 0) {
+        const l = s.landing;
+        t[J.hipsY] -= 0.22 * l;
+        t[J.legLX] -= 0.7 * l;
+        t[J.legRX] -= 0.7 * l;
+        t[J.shinLX] += 1.2 * l;
+        t[J.shinRX] += 1.2 * l;
+        t[J.torsoRX] += 0.35 * l;
+        rate = 25;
+      }
+    }
+
+    // upper-body actions (layered)
+    const a = s.action,
+      at = s.actionT;
+    if (a === 'punch') {
+      const k = at < 0.1 ? at / 0.1 : Math.max(0, 1 - (at - 0.1) / 0.25);
+      const side = s.actionSide;
+      if (side > 0) {
+        t[J.armRX] = -1.55 * k - 0.6 * (1 - k);
+        t[J.foreRX] = -1.6 * (1 - k) - 0.05;
+        t[J.armLX] = -0.9;
+        t[J.foreLX] = -1.9;
+        t[J.torsoRY] = 0.45 * k;
+      } else {
+        t[J.armLX] = -1.55 * k - 0.6 * (1 - k);
+        t[J.foreLX] = -1.6 * (1 - k) - 0.05;
+        t[J.armRX] = -0.9;
+        t[J.foreRX] = -1.9;
+        t[J.torsoRY] = -0.45 * k;
+      }
+      rate = 40;
+    } else if (a === 'swing') {
+      const k = Math.min(1, at / 0.32);
+      t[J.armRX] = -2.6 + k * 2.2;
+      t[J.armRZ] = 0.3;
+      t[J.foreRX] = -0.5;
+      t[J.armLX] = -2.4 + k * 2.0;
+      t[J.foreLX] = -0.6;
+      t[J.torsoRY] = -0.6 + k * 1.2;
+      rate = 30;
+    } else if (a === 'block') {
+      t[J.armLX] = -1.25;
+      t[J.armRX] = -1.25;
+      t[J.armLZ] = -0.35;
+      t[J.armRZ] = 0.35;
+      t[J.foreLX] = -2.0;
+      t[J.foreRX] = -2.0;
+      t[J.torsoRX] += 0.15;
+      rate = 30;
+    } else if (a === 'dodge') {
+      const k = Math.min(1, at / 0.55);
+      t[J.bodyRX] = k * Math.PI * 2;
+      t[J.hipsY] = -0.4 * Math.sin(k * Math.PI);
+      t[J.legLX] = -1.6;
+      t[J.legRX] = -1.6;
+      t[J.shinLX] = 2.0;
+      t[J.shinRX] = 2.0;
+      t[J.armLX] = -1.2;
+      t[J.armRX] = -1.2;
+      rate = 60;
+    } else if (a === 'interact') {
+      t[J.armRX] = -1.2;
+      t[J.foreRX] = -0.3;
+      t[J.torsoRX] = 0.2;
+    } else if (a === 'phone') {
+      t[J.armRX] = -0.4;
+      t[J.armRZ] = -0.5;
+      t[J.foreRX] = -2.5;
+      t[J.headRX] = 0.1;
+    } else if (a === 'handsUp') {
+      t[J.armLX] = -2.9;
+      t[J.armRX] = -2.9;
+      t[J.armLZ] = 0.2;
+      t[J.armRZ] = -0.2;
+      t[J.foreLX] = -0.5;
+      t[J.foreRX] = -0.5;
+    } else if (a === 'aim') {
+      t[J.armRX] = -Math.PI / 2 - s.aimPitch;
+      t[J.armRZ] = 0.1;
+      t[J.foreRX] = 0;
+      if (s.twoHanded) {
+        t[J.armLX] = -Math.PI / 2 - s.aimPitch + 0.15;
+        t[J.armLZ] = -0.55;
+        t[J.foreLX] = -0.5;
+      } else {
+        t[J.armLX] = -1.3 - s.aimPitch;
+        t[J.armLZ] = -0.5;
+        t[J.foreLX] = -0.4;
+      }
+      t[J.headRX] = -s.aimPitch * 0.6;
+      t[J.torsoRY] = 0;
+      rate = 30;
+    } else if (a === 'talk') {
+      const g = Math.sin(this.time * 3.1);
+      t[J.armRX] = -0.5 + g * 0.3;
+      t[J.foreRX] = -1.2 + Math.sin(this.time * 4.3) * 0.3;
+      t[J.armLX] = -0.2;
+      t[J.foreLX] = -0.6;
+      t[J.headRY] = Math.sin(this.time * 0.9) * 0.2;
+    } else if (a === 'cheer') {
+      t[J.armLX] = -2.8 + Math.sin(this.time * 8) * 0.2;
+      t[J.armRX] = -2.8 - Math.sin(this.time * 8) * 0.2;
+      t[J.hipsY] += Math.abs(Math.sin(this.time * 8)) * 0.06;
+    } else if (a === 'hit') {
+      t[J.torsoRX] -= 0.45 * Math.max(0, 1 - at / 0.3);
+      t[J.headRX] -= 0.4 * Math.max(0, 1 - at / 0.3);
+      rate = 40;
+    }
+
+    // knock-down overrides
+    if (s.knocked > 0) {
+      const k = s.knocked;
+      t[J.armLZ] = t[J.armLZ] * (1 - k) + 1.3 * k;
+      t[J.armRZ] = t[J.armRZ] * (1 - k) - 1.3 * k;
+      t[J.legLZ] = 0.15 * k;
+      t[J.legRZ] = -0.15 * k;
+      t[J.shinLX] = 0.3 * k;
+      t[J.legLX] = -0.3 * k;
+    }
+
+    const c = this.cur;
+    for (let i = 0; i < NJ; i++) {
+      if (i === J.bodyRX && (a === 'dodge' || (s.swim && sp > 0.6))) c[i] = damp(c[i], t[i], 60, dt);
+      else if ((i === J.armLX || i === J.armRX) && s.swim && sp > 0.6) c[i] = t[i];
+      else c[i] = damp(c[i], t[i], rate, dt);
+    }
+    if (a !== 'dodge' && Math.abs(c[J.bodyRX]) > Math.PI * 1.5 && !s.swim) c[J.bodyRX] = 0;
+
+    this.hips.position.y = 0.95 + c[J.hipsY];
+    this.body.rotation.x = c[J.bodyRX] - (Math.PI / 2) * s.knocked;
+    this.body.position.y = c[J.bodyY] + (s.knocked > 0 ? 0.12 * s.knocked : 0) + (a === 'dodge' ? 0.45 * Math.sin(Math.min(1, at / 0.55) * Math.PI) : 0);
+    this.torso.rotation.x = c[J.torsoRX];
+    this.torso.rotation.y = c[J.torsoRY];
+    this.head.rotation.x = c[J.headRX];
+    this.head.rotation.y = c[J.headRY];
+    this.armL.rotation.x = c[J.armLX];
+    this.armL.rotation.z = c[J.armLZ];
+    this.armR.rotation.x = c[J.armRX];
+    this.armR.rotation.z = c[J.armRZ];
+    this.foreL.rotation.x = c[J.foreLX];
+    this.foreR.rotation.x = c[J.foreRX];
+    this.legL.rotation.x = c[J.legLX];
+    this.legL.rotation.z = c[J.legLZ];
+    this.legR.rotation.x = c[J.legRX];
+    this.legR.rotation.z = c[J.legRZ];
+    this.shinL.rotation.x = c[J.shinLX];
+    this.shinR.rotation.x = c[J.shinRX];
+  }
+
+  dispose() {
+    this.root.removeFromParent();
+  }
+}
+
+const SKINS = [0xf1d3b8, 0xe0b48f, 0xc68e64, 0x9c6a44, 0x6e4a2e, 0x4a3020, 0xf6dcc8];
+const HAIRS = [0x1a1410, 0x3a2516, 0x6b4a2a, 0xa8834a, 0xd8c08a, 0x2a2a2a, 0x8a3a20];
+const SHIRTS = [0xe8e8e8, 0x2b4a8a, 0xb83a3a, 0x3a8a5a, 0xf2c230, 0x8a3ab8, 0x1a1a1a, 0x58b8d8, 0xf28ab0, 0xe86a2a, 0x6a7a8a, 0xf5e6c8];
+const PANTS = [0x2a3a5a, 0x1c1c1e, 0x4a4a4e, 0x8a7a5a, 0x5a3a2a, 0x3a4a3a, 0xc8c0b0];
+const SHOES = [0x111111, 0xf0f0f0, 0x5a3a20, 0x2a2a3a];
+
+export function randomLook(gang = false): CharacterLook {
+  const r = (a: number[]) => a[Math.floor(Math.random() * a.length)];
+  const style = Math.random() < 0.15 ? 3 : Math.random() < 0.3 ? 1 : Math.random() < 0.12 ? 2 : 0;
+  return {
+    skin: r(SKINS),
+    shirt: gang ? r([0x5a1a7a, 0x3a0a4a, 0x1a1a1a]) : r(SHIRTS),
+    pants: r(PANTS),
+    shoes: r(SHOES),
+    hair: r(HAIRS),
+    hairStyle: gang ? 3 : style,
+    hat: gang ? 0x7a1ab8 : r([0x223355, 0xb83a3a, 0x1a1a1a, 0xf2f2f2]),
+    height: 0.92 + Math.random() * 0.16,
+    build: 0.9 + Math.random() * 0.22,
+    jacket: gang ? 0x241a2e : Math.random() < 0.15 ? r([0x2a2a2a, 0x5a3a20, 0x2a3a5a]) : undefined,
+  };
+}
+
+export function policeLook(swat = false): CharacterLook {
+  return {
+    skin: SKINS[Math.floor(Math.random() * SKINS.length)],
+    shirt: swat ? 0x1e232b : 0x1f3a6e,
+    pants: swat ? 0x1a1d22 : 0x14223e,
+    shoes: 0x0c0c0c,
+    hair: 0x1a1410,
+    hairStyle: 3,
+    hat: swat ? 0x15181c : 0x14223e,
+    height: 1.0 + Math.random() * 0.06,
+    build: swat ? 1.15 : 1.05,
+    jacket: swat ? 0x2a2f38 : undefined,
+  };
+}
