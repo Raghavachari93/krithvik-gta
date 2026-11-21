@@ -5,13 +5,21 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 
-/** Final colour grade: a little extra saturation and contrast so the city pops in daylight. */
+import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
+
+/** Final film grade: gentle contrast, cool shadows / warm highlights, soft vignette and fine grain. */
 const GradeShader = {
-  uniforms: { tDiffuse: { value: null }, uSat: { value: 1.22 }, uContrast: { value: 1.08 } },
+  uniforms: { tDiffuse: { value: null }, uSat: { value: 1.04 }, uContrast: { value: 1.06 }, uTime: { value: 0 } },
   vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
-  fragmentShader: `uniform sampler2D tDiffuse; uniform float uSat; uniform float uContrast; varying vec2 vUv;
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float uSat; uniform float uContrast; uniform float uTime; varying vec2 vUv;
+    float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
     void main(){ vec4 c = texture2D(tDiffuse, vUv); float l = dot(c.rgb, vec3(0.2126,0.7152,0.0722));
-      vec3 col = mix(vec3(l), c.rgb, uSat); col = (col - 0.5) * uContrast + 0.5; gl_FragColor = vec4(clamp(col,0.0,1.0), c.a); }`,
+      vec3 col = mix(vec3(l), c.rgb, uSat);
+      col = (col - 0.5) * uContrast + 0.5;
+      col += mix(vec3(-0.012, 0.0, 0.018), vec3(0.018, 0.008, -0.012), smoothstep(0.15, 0.85, l)); // split tone
+      vec2 d = vUv - 0.5; col *= 1.0 - dot(d, d) * 0.55; // vignette
+      col += (hash(vUv * 1000.0 + uTime) - 0.5) * 0.018; // film grain
+      gl_FragColor = vec4(clamp(col,0.0,1.0), c.a); }`,
 };
 import { DISTRICT_NAMES, districtOf, locateBlock, inRect, AIRPORT, ISLAND, PORT, BEACH, ROAD_HALF, roadC } from './constants';
 import { CRAZY_IDS, HYPER_IDS, PLANE_IDS, VEHICLES } from './vehicles/VehicleSpecs';
@@ -55,6 +63,8 @@ export class Game {
   scene = new THREE.Scene();
   camera: THREE.PerspectiveCamera;
   composer: EffectComposer | null = null;
+  private ao: GTAOPass | null = null;
+  private grade: ShaderPass | null = null;
   private bloom: UnrealBloomPass | null = null;
   input: Input;
   col = new CollisionWorld();
@@ -114,9 +124,9 @@ export class Game {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    // Neutral tone mapping keeps paint and neon colours saturated (ACES washes them out)
-    this.renderer.toneMapping = THREE.NeutralToneMapping;
-    this.renderer.toneMappingExposure = 0.92;
+    // filmic tone mapping for a natural, photographic look
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 0.9;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     container.appendChild(this.renderer.domElement);
     this.renderer.domElement.tabIndex = 0;
@@ -224,17 +234,32 @@ export class Game {
     this.cam.setFov(s.fov);
     this.audio.volumes = { master: s.master, music: s.music, sfx: s.sfx, ambient: s.ambient };
     this.audio.applyVolumes();
+    const wantAO = s.quality === 'high'; // ambient occlusion is expensive: only on High
+    if (this.composer && wantAO !== !!this.ao) {
+      this.composer.dispose();
+      this.composer = null;
+      this.ao = null;
+    }
     if (s.bloom && !this.composer) {
       this.composer = new EffectComposer(this.renderer);
       this.composer.addPass(new RenderPass(this.scene, this.camera));
+      if (wantAO) {
+        // ambient occlusion: contact shadows under cars, in corners and around people
+        this.ao = new GTAOPass(this.scene, this.camera, window.innerWidth, window.innerHeight);
+        this.ao.updateGtaoMaterial({ radius: 0.9, distanceExponent: 1.5, thickness: 2, scale: 1.2, samples: 12 });
+        this.ao.blendIntensity = 0.85;
+        this.composer.addPass(this.ao);
+      }
       this.bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth / 2, window.innerHeight / 2), 0.55, 0.5, 0.85);
       this.composer.addPass(this.bloom);
       this.composer.addPass(new OutputPass());
-      this.composer.addPass(new ShaderPass(GradeShader));
+      this.grade = new ShaderPass(GradeShader);
+      this.composer.addPass(this.grade);
     } else if (!s.bloom && this.composer) {
       this.composer.dispose();
       this.composer = null;
       this.bloom = null;
+      this.ao = null;
     }
     this.onResize();
     try {
@@ -313,7 +338,7 @@ export class Game {
     this.giveStarterGuns();
     this.player.switchWeapon('pistol');
     this.lastSafehouse = 'sh_starter';
-    this.env.skipTo(12.5);
+    this.env.skipTo(16.3);
     if (!this.env.forced) this.env.weather = 'clear';
     this.spawnAtSafehouse('sh_starter');
     this.afterLoad();
@@ -842,7 +867,8 @@ export class Game {
   private render() {
     if (this.bloom) {
       const n = this.env.night;
-      this.bloom.strength = 0.2 + n * 0.4;
+      this.bloom.strength = 0.12 + n * 0.45;
+      if (this.grade) this.grade.uniforms.uTime.value = (this.time * 7.3) % 100;
       this.bloom.threshold = 1.3 - n * 0.45;
     }
     if (this.composer && this.settings.bloom) this.composer.render();

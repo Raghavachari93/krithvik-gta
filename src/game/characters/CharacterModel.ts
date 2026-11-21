@@ -18,6 +18,8 @@ export interface CharacterLook {
   /** tuxedo details: white shirt, satin lapels, bow tie, pocket square */
   outfit?: 'tux';
   headScale?: number;
+  /** picks eye colour, brows, lips and stubble for the painted face */
+  faceSeed?: number;
 }
 
 export type Action = 'none' | 'punch' | 'swing' | 'block' | 'dodge' | 'interact' | 'phone' | 'handsUp' | 'aim' | 'talk' | 'cheer' | 'hit';
@@ -125,6 +127,171 @@ function photoFaceMat(path: string) {
   return m;
 }
 
+/** Painted realistic face texture (eyes, brows, nose shading, lips, stubble), mapped like the photo face. */
+const paintedCache = new Map<string, THREE.MeshStandardMaterial>();
+function paintedFaceMat(skin: number, hair: number, seed: number) {
+  seed = seed % 8;
+  const key = `${skin}-${hair}-${seed}`;
+  let m = paintedCache.get(key);
+  if (m) return m;
+  // phones get half-size face textures to save memory; drawing stays in 256-px units
+  const small = window.matchMedia?.('(pointer: coarse)').matches ?? false;
+  const S = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = small ? 128 : 256;
+  const ctx = c.getContext('2d')!;
+  if (small) ctx.scale(0.5, 0.5);
+  // keep canvas maths in sRGB so painted skin matches the 3D skin exactly
+  const sc = (hex: number) => new THREE.Color().setRGB(((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255);
+  const sk = sc(skin);
+  const hr = sc(hair);
+  const rgb = (col: THREE.Color, k = 1, a = 1) => `rgba(${Math.round(Math.min(1, col.r * k) * 255)},${Math.round(Math.min(1, col.g * k) * 255)},${Math.round(Math.min(1, col.b * k) * 255)},${a})`;
+  let s = seed * 9301 + 49297;
+  const rnd = () => ((s = (s * 9301 + 49297) % 233280) / 233280);
+  // map head-local (x, y) to canvas pixels (same projection as photoFaceGeo)
+  const X = (x: number) => ((x + 0.1025) / 0.205) * S;
+  const Y = (y: number) => (1 - (y - 0.012) / 0.25) * S;
+  const lum = sk.r * 0.3 + sk.g * 0.59 + sk.b * 0.11;
+  const feminine = seed % 2 === 0;
+  // base skin with soft modelling: lighter cheeks/forehead, darker edges, jaw and eye sockets
+  ctx.fillStyle = rgb(sk);
+  ctx.fillRect(0, 0, S, S);
+  const radial = (x: number, y: number, r: number, col: string) => {
+    const gr = ctx.createRadialGradient(x, y, 0, x, y, r);
+    gr.addColorStop(0, col);
+    gr.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = gr;
+    ctx.fillRect(0, 0, S, S);
+  };
+  radial(S / 2, Y(0.17), 120, rgb(sk, 1.08, 0.5));
+  const edge = ctx.createRadialGradient(S / 2, Y(0.14), 70, S / 2, Y(0.14), 150);
+  edge.addColorStop(0, 'rgba(0,0,0,0)');
+  edge.addColorStop(1, rgb(sk, 0.72, 0.6));
+  ctx.fillStyle = edge;
+  ctx.fillRect(0, 0, S, S);
+  for (const sx of [1, -1]) {
+    radial(X(sx * 0.041), Y(0.16), 26, rgb(sk, 0.78, 0.45)); // eye socket
+    radial(X(sx * 0.052), Y(0.115), 26, `rgba(200,80,70,${lum > 0.55 ? 0.16 : 0.08})`); // cheek warmth
+  }
+  radial(S / 2, Y(0.05), 60, rgb(sk, 0.8, 0.35)); // under jaw
+  // stubble for some men
+  if (!feminine && seed % 4 === 1) {
+    for (let i = 0; i < 2600; i++) {
+      const a = rnd() * Math.PI,
+        r = 30 + rnd() * 40;
+      const x = S / 2 + Math.cos(a) * r * 1.1,
+        y = Y(0.095) + Math.sin(a) * r * 0.9 - 10;
+      ctx.fillStyle = rgb(hr, 1, 0.18);
+      ctx.fillRect(x, y, 1.2, 1.2);
+    }
+  }
+  // nose: side shadows, nostrils, bridge highlight
+  ctx.strokeStyle = rgb(sk, 0.7, 0.45);
+  ctx.lineWidth = 3;
+  for (const sx of [1, -1]) {
+    ctx.beginPath();
+    ctx.moveTo(S / 2 + sx * 7, Y(0.16));
+    ctx.quadraticCurveTo(S / 2 + sx * 10, Y(0.135), S / 2 + sx * 12, Y(0.123));
+    ctx.stroke();
+    ctx.fillStyle = rgb(sk, 0.42, 0.8);
+    ctx.beginPath();
+    ctx.ellipse(S / 2 + sx * 6, Y(0.118), 3.5, 2, sx * 0.3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  radial(S / 2, Y(0.14), 9, rgb(sk, 1.15, 0.6));
+  // lips
+  const lip = sk.clone().lerp(sc(feminine ? 0xb8404c : 0x9a5048), feminine ? 0.45 : 0.3);
+  const mx = S / 2,
+    my = Y(0.094),
+    mw = 26 + rnd() * 6;
+  ctx.fillStyle = rgb(lip, 0.82);
+  ctx.beginPath();
+  ctx.moveTo(mx - mw, my);
+  ctx.quadraticCurveTo(mx - mw * 0.4, my - 9, mx, my - 5);
+  ctx.quadraticCurveTo(mx + mw * 0.4, my - 9, mx + mw, my);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = rgb(lip, 1.0);
+  ctx.beginPath();
+  ctx.moveTo(mx - mw * 0.9, my);
+  ctx.quadraticCurveTo(mx, my + 12, mx + mw * 0.9, my);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = rgb(lip, 0.45, 0.9);
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.moveTo(mx - mw, my);
+  ctx.quadraticCurveTo(mx, my + 2, mx + mw, my);
+  ctx.stroke();
+  // eyes
+  const irisCols = [0x3b2414, 0x2a1a0e, 0x4a6a8a, 0x3e5a36, 0x5a3a1e, 0x1e1410];
+  const iris = sc(irisCols[seed % irisCols.length]);
+  for (const sx of [1, -1]) {
+    const ex = X(sx * 0.041),
+      ey = Y(0.158);
+    const ew = 17,
+      eh = 7.5;
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(ex - ew, ey);
+    ctx.quadraticCurveTo(ex, ey - eh * 1.5, ex + ew, ey);
+    ctx.quadraticCurveTo(ex, ey + eh * 1.2, ex - ew, ey);
+    ctx.closePath();
+    ctx.fillStyle = '#ece6de';
+    ctx.fill();
+    ctx.clip();
+    ctx.fillStyle = rgb(iris);
+    ctx.beginPath();
+    ctx.arc(ex, ey, 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#0a0806';
+    ctx.beginPath();
+    ctx.arc(ex, ey, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.beginPath();
+    ctx.arc(ex + 2.5, ey - 2.5, 1.6, 0, Math.PI * 2);
+    ctx.fill();
+    // upper lid shadow on the eyeball
+    ctx.fillStyle = 'rgba(40,20,10,0.25)';
+    ctx.fillRect(ex - ew, ey - eh * 1.6, ew * 2, eh * 0.9);
+    ctx.restore();
+    // lid lines / lashes
+    ctx.strokeStyle = 'rgba(25,15,10,0.95)';
+    ctx.lineWidth = feminine ? 2.6 : 1.8;
+    ctx.beginPath();
+    ctx.moveTo(ex - ew - 1, ey + 0.5);
+    ctx.quadraticCurveTo(ex, ey - eh * 1.55, ex + ew + 1, ey - 0.5);
+    ctx.stroke();
+    ctx.strokeStyle = rgb(sk, 0.6, 0.6);
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(ex - ew + 2, ey + 1);
+    ctx.quadraticCurveTo(ex, ey + eh * 1.25, ex + ew - 2, ey + 1);
+    ctx.stroke();
+    // crease above the eye
+    ctx.strokeStyle = rgb(sk, 0.75, 0.5);
+    ctx.beginPath();
+    ctx.moveTo(ex - ew + 1, ey - 6);
+    ctx.quadraticCurveTo(ex, ey - eh * 2.3, ex + ew, ey - 7);
+    ctx.stroke();
+    // eyebrow
+    ctx.strokeStyle = rgb(hr, 0.9, 0.92);
+    ctx.lineCap = 'round';
+    ctx.lineWidth = feminine ? 3.2 : 5;
+    ctx.beginPath();
+    ctx.moveTo(ex - sx * 18, Y(0.183));
+    ctx.quadraticCurveTo(ex + sx * 2, Y(0.196), ex + sx * 20, Y(0.186));
+    ctx.stroke();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  m = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.55, polygonOffset: true, polygonOffsetFactor: -2 });
+  paintedCache.set(key, m);
+  return m;
+}
+
 /** Spiky boy's haircut: crown cap, back piece and a ring of tufts. */
 function spikyHairGeo() {
   const parts: THREE.BufferGeometry[] = [
@@ -155,9 +322,28 @@ let G: Record<string, THREE.BufferGeometry> | null = null;
 function geos() {
   if (G) return G;
   G = {
-    pelvis: new THREE.BoxGeometry(0.34, 0.18, 0.21).translate(0, 0.02, 0),
-    chest: new THREE.CapsuleGeometry(0.17, 0.3, 4, 10).scale(1.15, 1, 0.7).translate(0, 0.32, 0),
-    head: new THREE.SphereGeometry(0.115, 14, 10).scale(0.92, 1.08, 1).translate(0, 0.14, 0.01),
+    pelvis: new THREE.CapsuleGeometry(0.1, 0.14, 6, 14).rotateZ(Math.PI / 2).scale(1, 1, 1.05).translate(0, 0.02, 0),
+    chest: mergeGeometries([
+      new THREE.LatheGeometry(
+        [
+          [0.0, 0.0],
+          [0.13, 0.0],
+          [0.145, 0.08],
+          [0.15, 0.2],
+          [0.175, 0.34],
+          [0.19, 0.45],
+          [0.17, 0.54],
+          [0.11, 0.6],
+          [0.06, 0.63],
+          [0.0, 0.635],
+        ].map(([r, y]) => new THREE.Vector2(r, y)),
+        24,
+      ).scale(1.15, 1, 0.62),
+      // shoulder caps
+      new THREE.SphereGeometry(0.07, 14, 10).scale(1, 0.85, 0.95).translate(0.2, 0.52, 0),
+      new THREE.SphereGeometry(0.07, 14, 10).scale(1, 0.85, 0.95).translate(-0.2, 0.52, 0),
+    ].map((g) => { const n = g.index ? g.toNonIndexed() : g; n.deleteAttribute('uv'); return n; }))!,
+    head: new THREE.SphereGeometry(0.115, 24, 18).scale(0.9, 1.1, 1).translate(0, 0.14, 0.01),
     face: faceGeo(),
     photoFace: photoFaceGeo(),
     hairSpiky: spikyHairGeo(),
@@ -166,7 +352,7 @@ function geos() {
       new THREE.SphereGeometry(0.026, 8, 6).scale(0.45, 1, 0.8).translate(-0.104, 0.142, 0.0),
     ])!,
     faceSkin: mergeGeometries([
-      new THREE.BoxGeometry(0.024, 0.045, 0.034).rotateX(-0.2).translate(0, 0.132, 0.122), // nose
+      new THREE.SphereGeometry(0.02, 10, 8).scale(0.8, 1.5, 0.95).rotateX(-0.25).translate(0, 0.135, 0.112), // nose
       new THREE.SphereGeometry(0.026, 8, 6).scale(0.45, 1, 0.8).translate(0.104, 0.142, 0.0), // ears
       new THREE.SphereGeometry(0.026, 8, 6).scale(0.45, 1, 0.8).translate(-0.104, 0.142, 0.0),
     ].map((g) => (g.index ? g.toNonIndexed() : g)).map((g) => (g.deleteAttribute('uv'), g)))!,
@@ -182,12 +368,18 @@ function geos() {
     ])!.scale(1, 1.15, 1).translate(0, 0.13, -0.02),
     cap: new THREE.CylinderGeometry(0.125, 0.125, 0.08, 12).translate(0, 0.22, 0),
     brim: new THREE.BoxGeometry(0.2, 0.02, 0.12).translate(0, 0.19, 0.12),
-    upperArm: new THREE.CapsuleGeometry(0.055, 0.2, 4, 8).translate(0, -0.14, 0),
-    foreArm: new THREE.CapsuleGeometry(0.047, 0.19, 4, 8).translate(0, -0.13, 0),
-    hand: new THREE.SphereGeometry(0.052, 8, 6).scale(0.8, 1.1, 0.7).translate(0, -0.29, 0),
-    thigh: new THREE.CapsuleGeometry(0.08, 0.3, 4, 8).translate(0, -0.22, 0),
-    shin: new THREE.CapsuleGeometry(0.065, 0.31, 4, 8).translate(0, -0.21, 0),
-    foot: new THREE.BoxGeometry(0.1, 0.07, 0.24).translate(0, -0.44, 0.05),
+    upperArm: new THREE.CapsuleGeometry(0.055, 0.2, 6, 12).translate(0, -0.14, 0),
+    foreArm: new THREE.CapsuleGeometry(0.045, 0.19, 6, 12).translate(0, -0.13, 0),
+    hand: mergeGeometries([
+      new THREE.SphereGeometry(0.046, 12, 8).scale(0.75, 1.15, 0.55).translate(0, -0.29, 0),
+      new THREE.CapsuleGeometry(0.014, 0.04, 4, 6).rotateZ(0.5).translate(0.032, -0.28, 0.012), // thumb
+    ].map((g) => g.toNonIndexed()))!,
+    thigh: new THREE.CapsuleGeometry(0.078, 0.3, 6, 12).translate(0, -0.22, 0),
+    shin: new THREE.CapsuleGeometry(0.062, 0.31, 6, 12).translate(0, -0.21, 0),
+    foot: mergeGeometries([
+      new THREE.CapsuleGeometry(0.045, 0.16, 6, 10).rotateX(Math.PI / 2).scale(1.05, 0.75, 1).translate(0, -0.445, 0.05),
+      new THREE.BoxGeometry(0.1, 0.018, 0.25).translate(0, -0.475, 0.05), // sole
+    ].map((g) => g.toNonIndexed()))!,
     // weapons
     bat: new THREE.CylinderGeometry(0.035, 0.022, 0.85, 8).rotateX(Math.PI / 2).translate(0, -0.3, 0.38),
     pistol: new THREE.BoxGeometry(0.04, 0.09, 0.2).translate(0, -0.27, 0.08),
@@ -295,9 +487,9 @@ export class CharacterModel {
 
   constructor(public look: CharacterLook) {
     const g = geos();
-    const skin = mat(look.skin, 0.7),
-      shirt = mat(look.shirt),
-      pants = mat(look.pants),
+    const skin = mat(look.skin, 0.55),
+      shirt = mat(look.shirt, 0.92),
+      pants = mat(look.pants, 0.95),
       shoes = mat(look.shoes, 0.5),
       hair = mat(look.hair, 0.9);
     const add = (parent: THREE.Object3D, geo: THREE.BufferGeometry, m: THREE.Material) => {
@@ -324,7 +516,8 @@ export class CharacterModel {
       this.headMeshes.push(face, add(this.head, g.ears, skin));
       this.head.scale.setScalar(look.headScale ?? 1);
     } else {
-      const face = new THREE.Mesh(g.face, faceMat);
+      const seed = look.faceSeed ?? Math.abs(Math.floor(look.skin * 0.37 + look.hair * 0.11 + look.shirt * 0.07));
+      const face = new THREE.Mesh(g.photoFace, paintedFaceMat(look.skin, look.hair, seed));
       this.head.add(face);
       this.headMeshes.push(face, add(this.head, g.faceSkin, skin));
     }
@@ -665,23 +858,24 @@ export class CharacterModel {
   }
 }
 
-const SKINS = [0xf1d3b8, 0xe0b48f, 0xc68e64, 0x9c6a44, 0x6e4a2e, 0x4a3020, 0xf6dcc8];
+const SKINS = [0xe8c4a6, 0xd9a983, 0xc08860, 0x9a6a46, 0x74503a, 0x543a2a, 0xf0d2bc, 0xc99a74];
 const HAIRS = [0x1a1410, 0x3a2516, 0x6b4a2a, 0xa8834a, 0xd8c08a, 0x2a2a2a, 0x8a3a20];
-const SHIRTS = [0xe8e8e8, 0x2b4a8a, 0xb83a3a, 0x3a8a5a, 0xf2c230, 0x8a3ab8, 0x1a1a1a, 0x58b8d8, 0xf28ab0, 0xe86a2a, 0x6a7a8a, 0xf5e6c8];
-const PANTS = [0x2a3a5a, 0x1c1c1e, 0x4a4a4e, 0x8a7a5a, 0x5a3a2a, 0x3a4a3a, 0xc8c0b0];
-const SHOES = [0x111111, 0xf0f0f0, 0x5a3a20, 0x2a2a3a];
+const SHIRTS = [0xe6e4de, 0x2c3e5c, 0x7a2e2e, 0x3d5a46, 0xc9a85a, 0x4a4a52, 0x1c1c1e, 0x6f8aa0, 0xb89a86, 0x8a5a3a, 0x9aa3ab, 0xd9cdb5, 0x5a4a6a, 0xa8b8a0];
+const PANTS = [0x2f3f5c, 0x34496a, 0x1c1c1e, 0x4a4a4e, 0x8a7a5a, 0x5a4232, 0x4a5240, 0xb8b0a0];
+const SHOES = [0x161616, 0xe8e8e6, 0x4a3220, 0x2a2a32, 0x6a5a48];
 
 export function randomLook(gang = false): CharacterLook {
   const r = (a: number[]) => a[Math.floor(Math.random() * a.length)];
   const style = Math.random() < 0.15 ? 3 : Math.random() < 0.3 ? 1 : Math.random() < 0.12 ? 2 : 0;
   return {
     skin: r(SKINS),
-    shirt: gang ? r([0x5a1a7a, 0x3a0a4a, 0x1a1a1a]) : r(SHIRTS),
+    shirt: gang ? r([0x3a2a4a, 0x2a2030, 0x1a1a1a]) : r(SHIRTS),
     pants: r(PANTS),
     shoes: r(SHOES),
     hair: r(HAIRS),
     hairStyle: gang ? 3 : style,
-    hat: gang ? 0x7a1ab8 : r([0x223355, 0xb83a3a, 0x1a1a1a, 0xf2f2f2]),
+    hat: gang ? 0x3a2a4a : r([0x263046, 0x6a2a2a, 0x1a1a1a, 0xd8d6d0]),
+    faceSeed: Math.floor(Math.random() * 1000),
     height: 0.92 + Math.random() * 0.16,
     build: 0.9 + Math.random() * 0.22,
     jacket: gang ? 0x241a2e : Math.random() < 0.15 ? r([0x2a2a2a, 0x5a3a20, 0x2a3a5a]) : undefined,

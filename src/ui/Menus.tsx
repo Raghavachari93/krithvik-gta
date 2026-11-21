@@ -177,7 +177,7 @@ export function SettingsScreen() {
               >
                 <option value="low">Low (fast)</option>
                 <option value="medium">Medium</option>
-                <option value="high">High</option>
+                <option value="high">High (realistic shadows, needs a strong PC)</option>
               </select>
             </label>
             {toggle('Dynamic shadows', 'shadows')}

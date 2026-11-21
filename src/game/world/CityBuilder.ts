@@ -308,7 +308,7 @@ export class CityBuilder {
     glass: buildingMaterial({ cellW: 2.2, cellH: 3.6, frameX: 0.05, frameY: 0.08, glass: 1, lit: 0.45, cool: 0.6 }, 0.25, 0.55),
     concrete: buildingMaterial({ cellW: 3.2, cellH: 3.6, frameX: 0.18, frameY: 0.22, glass: 0.95, lit: 0.4, cool: 0.35 }),
     pastel: buildingMaterial({ cellW: 3.4, cellH: 3.4, frameX: 0.24, frameY: 0.25, glass: 0.9, lit: 0.45, cool: 0.2 }),
-    brick: buildingMaterial({ cellW: 2.8, cellH: 3.3, frameX: 0.22, frameY: 0.24, glass: 0.92, lit: 0.5, cool: 0.1 }),
+    brick: buildingMaterial({ cellW: 2.8, cellH: 3.3, frameX: 0.22, frameY: 0.24, glass: 0.92, lit: 0.5, cool: 0.1, brick: true }),
     industrial: buildingMaterial({ cellW: 5.5, cellH: 5.0, frameX: 0.12, frameY: 0.3, glass: 0.8, lit: 0.25, cool: 0.7, bandOnly: true }, 0.7, 0.3),
     dark: buildingMaterial({ cellW: 2.6, cellH: 3.4, frameX: 0.2, frameY: 0.22, glass: 1, lit: 0.55, cool: 0.8 }, 0.6, 0.2),
     white: buildingMaterial({ cellW: 3.6, cellH: 3.4, frameX: 0.2, frameY: 0.24, glass: 0.9, lit: 0.4, cool: 0.3 }, 0.7),
@@ -466,16 +466,54 @@ export class CityBuilder {
         fronds.push({ x: t.x + Math.sin(t.x * 3.1) * -0.12 * h * 0.5, y: gy + h - 0.2, z: t.z, sx: t.s, sy: t.s, sz: t.s, ry: t.x * 1.7 });
       } else {
         trunk.push({ x: t.x, y: gy, z: t.z, sx: t.s, sy: t.s * 3, sz: t.s });
-        crown.push({ x: t.x, y: gy + t.s * 3 + 1.2 * t.s, z: t.z, sx: t.s * 2.2, sy: t.s * 2.0, sz: t.s * 2.2, ry: t.z, color: [0x3f7a35, 0x4d8a3c, 0x356b2e, 0x5a9443][Math.abs(Math.floor(t.x * 7 + t.z)) % 4] });
+        crown.push({ x: t.x, y: gy + t.s * 3 + 1.2 * t.s, z: t.z, sx: t.s * 2.2, sy: t.s * 2.0, sz: t.s * 2.2, ry: t.z, color: [0x4f7a3a, 0x5d8040, 0x466e33, 0x6b8a45][Math.abs(Math.floor(t.x * 7 + t.z)) % 4] });
       }
       this.col.addBoxCentered(t.x, t.z, 0.6, 0.6, gy, 5, BoxKind.Tree);
     }
-    const bark = new THREE.MeshStandardMaterial({ color: 0x6b4f36, roughness: 1 });
-    const tg = new THREE.CylinderGeometry(0.16, 0.26, 1, 6);
-    tg.translate(0, 0.5, 0);
+    const bark = new THREE.MeshStandardMaterial({ color: 0x5a4434, roughness: 1, map: Tex.bark() });
+    // trunk with a few forking branches (unit height, scaled per tree)
+    const tparts = [new THREE.CylinderGeometry(0.13, 0.24, 1, 8).translate(0, 0.5, 0)];
+    for (let k = 0; k < 3; k++) {
+      const br = new THREE.CylinderGeometry(0.04, 0.08, 0.7, 5).translate(0, 0.35, 0).rotateZ(0.7).rotateY((k / 3) * Math.PI * 2 + 0.4).translate(0, 0.75 + k * 0.08, 0);
+      tparts.push(br);
+    }
+    const tg = mergeGeometries(tparts.map((g) => g.toNonIndexed()))!;
     chunked(tg, bark, trunk, this.group);
-    const cg = new THREE.IcosahedronGeometry(1, 1);
-    chunked(cg, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, flatShading: true }), crown, this.group);
+    // leafy crown: several overlapping noisy lumps, darker underneath
+    const lumps: THREE.BufferGeometry[] = [];
+    const lumpAt: [number, number, number, number][] = [
+      [0, 0.1, 0, 0.78],
+      [0.45, -0.1, 0.2, 0.55],
+      [-0.4, -0.05, -0.25, 0.58],
+      [0.1, 0.45, -0.1, 0.5],
+      [-0.2, -0.25, 0.42, 0.5],
+      [0.25, -0.3, -0.45, 0.45],
+    ];
+    for (const [x, y, z, r] of lumpAt) {
+      const g = new THREE.IcosahedronGeometry(r, 3);
+      const pos = g.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        const vx = pos.getX(i),
+          vy = pos.getY(i),
+          vz = pos.getZ(i);
+        const n = 1 + 0.16 * Math.sin(vx * 9.1 + vz * 4.3) * Math.cos(vy * 8.7 - vx * 3.1) + 0.08 * Math.sin(vz * 17 + vy * 13);
+        pos.setXYZ(i, vx * n + x, vy * n + y, vz * n + z);
+      }
+      lumps.push(g.toNonIndexed());
+    }
+    const cg = mergeGeometries(lumps)!;
+    cg.computeVertexNormals();
+    {
+      const pos = cg.attributes.position;
+      const col = new Float32Array(pos.count * 3);
+      for (let i = 0; i < pos.count; i++) {
+        const k = 0.55 + 0.45 * THREE.MathUtils.smoothstep(pos.getY(i), -0.8, 0.9);
+        col.set([k, k, k], i * 3);
+      }
+      cg.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    }
+    const leafMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85, map: Tex.foliage(), vertexColors: true });
+    chunked(cg, leafMat, crown, this.group);
     const ptg = new THREE.CylinderGeometry(0.13, 0.24, 1, 6);
     ptg.translate(0, 0.5, 0);
     chunked(ptg, new THREE.MeshStandardMaterial({ color: 0x8a7354, roughness: 1 }), palmTrunk, this.group);

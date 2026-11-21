@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { mergeGeometries, toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { VehicleSpec } from './VehicleSpecs';
 
 export interface WheelRig {
@@ -46,12 +46,34 @@ function colorize(g: THREE.BufferGeometry, c: number) {
 }
 
 /** Side-profile extrusion: shape in (x=length, y=height), extruded across width, rotated so length -> +Z. */
-function profile(points: [number, number][], width: number, bevel = 0.05) {
+function profile(points: [number, number][], width: number, bevel = 0.05, round = 0) {
   const sh = new THREE.Shape();
-  sh.moveTo(points[0][0], points[0][1]);
-  for (let i = 1; i < points.length; i++) sh.lineTo(points[i][0], points[i][1]);
+  if (round <= 0) {
+    sh.moveTo(points[0][0], points[0][1]);
+    for (let i = 1; i < points.length; i++) sh.lineTo(points[i][0], points[i][1]);
+  } else {
+    // round every corner with a curve so the silhouette flows like real bodywork
+    const n = points.length;
+    const at = (i: number) => points[(i + n) % n];
+    const cut = (a: [number, number], b: [number, number]) => {
+      const dx = b[0] - a[0],
+        dy = b[1] - a[1];
+      const len = Math.hypot(dx, dy) || 1;
+      const r = Math.min(round, len * 0.45);
+      return [a[0] + (dx / len) * r, a[1] + (dy / len) * r] as [number, number];
+    };
+    const start = cut(at(0), at(1));
+    sh.moveTo(start[0], start[1]);
+    for (let i = 1; i <= n; i++) {
+      const p = at(i);
+      const inP = cut(p, at(i - 1));
+      const outP = cut(p, at(i + 1));
+      sh.lineTo(inP[0], inP[1]);
+      sh.quadraticCurveTo(p[0], p[1], outP[0], outP[1]);
+    }
+  }
   sh.closePath();
-  const g = new THREE.ExtrudeGeometry(sh, { depth: width - bevel * 2, bevelEnabled: bevel > 0, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 2, curveSegments: 4 });
+  const g = new THREE.ExtrudeGeometry(sh, { depth: width - bevel * 2, bevelEnabled: bevel > 0, bevelThickness: bevel, bevelSize: bevel, bevelSegments: round > 0 ? 4 : 2, curveSegments: round > 0 ? 6 : 4 });
   g.translate(0, 0, -(width - bevel * 2) / 2);
   g.rotateY(-Math.PI / 2);
   return g;
@@ -76,13 +98,14 @@ const DARK = 0x16171a;
 const CHROME = 0x9aa0a8;
 
 function wheelGeo(r: number, w: number, knobby = false, rimColor = CHROME, sporty = false) {
-  const tire = colorize(new THREE.CylinderGeometry(r, r, w, 18).rotateZ(Math.PI / 2), 0x151515);
+  const tire = colorize(new THREE.CylinderGeometry(r, r, w * 0.7, 28).rotateZ(Math.PI / 2), 0x151515);
+  const shoulders = [1, -1].map((sx) => colorize(new THREE.TorusGeometry(r - w * 0.15, w * 0.16, 8, 28).rotateY(Math.PI / 2).translate((sx * w * 0.35), 0, 0), 0x1a1a1a));
   const rim = colorize(new THREE.CylinderGeometry(r * (sporty ? 0.74 : 0.62), r * (sporty ? 0.74 : 0.62), w + 0.02, 14).rotateZ(Math.PI / 2), sporty ? 0x0c0c0e : rimColor);
   const spokes = colorize(new THREE.BoxGeometry(w + 0.04, r * 1.1, 0.06), 0x55595e);
-  const parts = [tire, rim, spokes];
+  const parts = [tire, rim, spokes, ...shoulders];
   if (sporty) {
     // thin multi-spoke alloy
-    parts.length = 2;
+    parts.splice(2, 1);
     for (let i = 0; i < 10; i++) parts.push(colorize(new THREE.BoxGeometry(w + 0.05, r * 1.42, 0.035).rotateX((i / 10) * Math.PI), rimColor));
     parts.push(colorize(new THREE.CylinderGeometry(r * 0.14, r * 0.14, w + 0.07, 8).rotateZ(Math.PI / 2), rimColor));
   }
@@ -404,7 +427,8 @@ function buildCar(spec: VehicleSpec) {
         [-h, sh.tail - 0.12],
       ],
       W,
-      0.06,
+      spec.cls === 'truck' || sh.boxy ? 0.06 : 0.12,
+      spec.cls === 'truck' ? 0 : 0.22,
     ),
     0xffffff,
   );
@@ -420,7 +444,8 @@ function buildCar(spec: VehicleSpec) {
         [sh.roofRear, sh.roofH - 0.02],
       ],
       W * 0.86,
-      0.03,
+      0.05,
+      0.1,
     );
     parts.push(
       colorize(
@@ -432,7 +457,8 @@ function buildCar(spec: VehicleSpec) {
             [sh.roofRear, sh.roofH + 0.03],
           ],
           W * 0.88,
-          0.02,
+          0.04,
+          0.06,
         ),
         0xffffff,
       ),
@@ -468,8 +494,9 @@ function buildCar(spec: VehicleSpec) {
     parts.push(colorize(new THREE.BoxGeometry(W * 0.7, 0.35, 0.04).translate(0, 1.0, h + 0.01), 0x0a0a0a));
     glass = new THREE.BoxGeometry(W * 0.9, 0.7, 0.1).translate(0, 2.45, h - 0.48);
   }
-  const body = mergeGeometries(parts)!;
-  body.computeVertexNormals();
+  // smooth shading across curved panels, crisp creases at sharp edges
+  const body = toCreasedNormals(mergeGeometries(parts.map((g) => (g.index ? g.toNonIndexed() : g)))!, 0.62);
+  if (glass) glass = toCreasedNormals(glass.index ? glass.toNonIndexed() : glass, 0.62);
   const lx = W / 2 - 0.3;
   const headY = spec.cls === 'truck' ? 0.9 : sh.nose - 0.12;
   const head = mergeGeometries([new THREE.BoxGeometry(0.42, 0.12, 0.06).translate(lx, headY, h + 0.01), new THREE.BoxGeometry(0.42, 0.12, 0.06).translate(-lx, headY, h + 0.01)])!;

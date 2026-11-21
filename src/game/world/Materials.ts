@@ -69,11 +69,53 @@ export const Tex = {
     }
     return (cache.sidewalk = tex(c));
   },
+  /** dense leaf clusters (multiplied by each tree's instance colour) */
+  foliage() {
+    if (cache.foliage) return cache.foliage;
+    const c = canvas(256, 256);
+    const ctx = c.getContext('2d')!;
+    ctx.fillStyle = 'rgb(150,150,150)';
+    ctx.fillRect(0, 0, 256, 256);
+    for (let i = 0; i < 2600; i++) {
+      const v = 90 + Math.random() * 165;
+      ctx.fillStyle = `rgb(${v * (0.92 + Math.random() * 0.1)},${v},${v * 0.8})`;
+      ctx.beginPath();
+      ctx.ellipse(Math.random() * 256, Math.random() * 256, 2 + Math.random() * 4, 1 + Math.random() * 2, Math.random() * Math.PI, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    for (let i = 0; i < 160; i++) {
+      ctx.fillStyle = 'rgba(20,30,15,0.45)';
+      ctx.beginPath();
+      ctx.arc(Math.random() * 256, Math.random() * 256, 2 + Math.random() * 5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    return (cache.foliage = tex(c, 3));
+  },
+  bark() {
+    if (cache.bark) return cache.bark;
+    const c = canvas(64, 256);
+    const ctx = c.getContext('2d')!;
+    noiseFill(ctx, 64, 256, [120, 100, 82], 40, 1500, 2);
+    for (let i = 0; i < 40; i++) {
+      ctx.strokeStyle = `rgba(40,30,22,${0.3 + Math.random() * 0.4})`;
+      ctx.lineWidth = 1 + Math.random() * 2;
+      const x = Math.random() * 64;
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.bezierCurveTo(x + 6, 80, x - 6, 170, x + 3, 256);
+      ctx.stroke();
+    }
+    return (cache.bark = tex(c, 1));
+  },
   grass() {
     if (cache.grass) return cache.grass;
     const c = canvas(256, 256);
     const ctx = c.getContext('2d')!;
-    noiseFill(ctx, 256, 256, [74, 120, 58], 40, 12000, 2);
+    noiseFill(ctx, 256, 256, [82, 112, 60], 46, 16000, 2);
+    for (let i = 0; i < 900; i++) {
+      ctx.fillStyle = `rgba(${110 + Math.random() * 40},${120 + Math.random() * 30},${60},0.35)`;
+      ctx.fillRect(Math.random() * 256, Math.random() * 256, 1, 3 + Math.random() * 4);
+    }
     return (cache.grass = tex(c));
   },
   lot() {
@@ -223,6 +265,8 @@ export interface WindowParams {
   lit: number;
   cool: number;
   bandOnly?: boolean;
+  /** brick coursing on the walls */
+  brick?: boolean;
 }
 
 /** MeshStandardMaterial with procedural world-space windows that glow at night. */
@@ -233,6 +277,7 @@ export function buildingMaterial(p: WindowParams, rough = 0.85, metal = 0.05) {
     shader.uniforms.uWet = worldUniforms.uWet;
     shader.uniforms.uWinA = { value: new THREE.Vector4(p.cellW, p.cellH, p.frameX, p.frameY) };
     shader.uniforms.uWinB = { value: new THREE.Vector4(p.glass, p.lit, p.cool, p.bandOnly ? 1 : 0) };
+    shader.uniforms.uWinC = { value: new THREE.Vector4(p.brick ? 1 : 0, 0, 0, 0) };
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vNbPos;\nvarying vec3 vNbN;')
       .replace(
@@ -253,8 +298,11 @@ export function buildingMaterial(p: WindowParams, rough = 0.85, metal = 0.05) {
         '#include <common>',
         `#include <common>
         varying vec3 vNbPos; varying vec3 vNbN;
-        uniform float uNight; uniform float uWet; uniform vec4 uWinA; uniform vec4 uWinB;
-        float nbHash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }`,
+        uniform float uNight; uniform float uWet; uniform vec4 uWinA; uniform vec4 uWinB; uniform vec4 uWinC;
+        float nbHash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+        float nbNoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+          return mix(mix(nbHash(i), nbHash(i + vec2(1,0)), f.x), mix(nbHash(i + vec2(0,1)), nbHash(i + vec2(1,1)), f.x), f.y); }
+        float nbWinMask = 0.0;`,
       )
       .replace(
         '#include <color_fragment>',
@@ -273,7 +321,29 @@ export function buildingMaterial(p: WindowParams, rough = 0.85, metal = 0.05) {
         float nbR = nbHash(nbId + vec2(floor(nbPlane * 0.37) * 7.13, nbn.x * 3.0 + nbn.z * 5.0));
         float nbR2 = nbHash(nbId * 1.7 + 3.1);
         vec3 nbGlass = mix(vec3(0.05, 0.07, 0.1), vec3(0.12, 0.18, 0.24), nbR2);
-        diffuseColor.rgb = mix(diffuseColor.rgb, nbGlass, nbWin * uWinB.x);
+        // weathering: large blotches, rain streaks, dirt near the street, floor slab lines
+        float nbBig = nbNoise(nbUV * 0.08 + nbPlane * 0.03) * 0.6 + nbNoise(nbUV * 0.5) * 0.4;
+        float nbStreak = nbNoise(vec2(nbUV.x * 1.3, nbUV.y * 0.04 + nbPlane));
+        float nbShade = mix(0.86, 1.06, nbBig) * mix(0.9, 1.0, nbStreak);
+        nbShade *= mix(0.72, 1.0, smoothstep(0.0, 4.0, vNbPos.y));
+        float nbSlab = 1.0 - (1.0 - smoothstep(0.0, 0.05, fract(vNbPos.y / uWinA.y))) * 0.18 * nbSide;
+        nbShade *= nbSlab;
+        if (uWinC.x > 0.5) {
+          // brick courses with offset joints
+          vec2 bk = vec2(nbUV.x / 0.24 + 0.5 * mod(floor(nbUV.y / 0.075), 2.0), nbUV.y / 0.075);
+          vec2 bf = fract(bk);
+          float mortar = step(0.1, bf.y) * step(0.05, bf.x);
+          nbShade *= mix(1.25, mix(0.85, 1.08, nbHash(floor(bk))), mortar);
+        }
+        // roofs: gravel / tar speckle
+        nbShade = mix(nbShade, mix(0.75, 1.0, nbNoise(vNbPos.xz * 3.0)) * mix(0.85, 1.0, nbBig), 1.0 - nbSide);
+        diffuseColor.rgb *= nbShade;
+        // darker recess around each window (fake ambient occlusion)
+        vec2 nbEdge = min(nbF - vec2(uWinA.z, uWinA.w), vec2(1.0 - uWinA.z, 1.0 - uWinA.w * 0.6) - nbF);
+        float nbFrameAO = smoothstep(-0.08, 0.0, min(nbEdge.x, nbEdge.y)) * (1.0 - nbWin) * nbSide * step(1.4, vNbPos.y);
+        diffuseColor.rgb *= 1.0 - nbFrameAO * 0.25;
+        nbWinMask = nbWin * uWinB.x;
+        diffuseColor.rgb = mix(diffuseColor.rgb, nbGlass * 0.6, nbWinMask);
         diffuseColor.rgb *= 1.0 - uWet * 0.25 * (1.0 - nbSide);
         float nbLit = step(1.0 - uWinB.y, nbR) * uNight;
         vec3 nbWarm = mix(vec3(1.0, 0.72, 0.4), vec3(0.65, 0.82, 1.0), step(1.0 - uWinB.z, nbR2));
@@ -282,7 +352,12 @@ export function buildingMaterial(p: WindowParams, rough = 0.85, metal = 0.05) {
       .replace(
         '#include <roughnessmap_fragment>',
         `#include <roughnessmap_fragment>
-        roughnessFactor = mix(roughnessFactor, 0.12, nbWin * uWinB.x);`,
+        roughnessFactor = mix(roughnessFactor, 0.06, nbWinMask);`,
+      )
+      .replace(
+        '#include <metalnessmap_fragment>',
+        `#include <metalnessmap_fragment>
+        metalnessFactor = mix(metalnessFactor, 0.85, nbWinMask); // windows mirror the sky`,
       )
       .replace(
         '#include <emissivemap_fragment>',

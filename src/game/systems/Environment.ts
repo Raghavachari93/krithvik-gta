@@ -23,7 +23,7 @@ export const WEATHER_LABEL: Record<Weather, string> = {
 
 /** Day/night cycle, sky, sun/moon lighting, weather, rain and fog. */
 export class Environment {
-  hours = 12.5;
+  hours = 16.3;
   /** hold the sun at midday */
   lockDay = true;
   /** in-game hours per real second */
@@ -172,7 +172,7 @@ export class Environment {
 
   update(dt: number, focus: THREE.Vector3, camera: THREE.Camera) {
     const dh = dt * this.speed;
-    if (this.lockDay) this.hours = 12.5;
+    if (this.lockDay) this.hours = 16.3;
     else this.hours = (this.hours + dh) % 24;
     this.elapsedHours += dh;
     worldUniforms.uTime.value += dt;
@@ -221,7 +221,7 @@ export class Environment {
     const lightDir = this.sunElev > -0.05 ? this.sunDir : new THREE.Vector3(-this.sunDir.x, -this.sunDir.y, -0.3).normalize();
     if (this.sunElev > -0.05) {
       this.sun.color.copy(sunCol);
-      this.sun.intensity = 3.4 * smoothstep(-0.05, 0.12, this.sunElev) * (1 - this.cloud * 0.65);
+      this.sun.intensity = 4.5 * smoothstep(-0.05, 0.12, this.sunElev) * (1 - this.cloud * 0.65);
     } else {
       this.sun.color.setRGB(0.55, 0.65, 1.0);
       this.sun.intensity = 0.35 * (1 - this.cloud * 0.6);
@@ -235,7 +235,7 @@ export class Environment {
     this.lightning = Math.max(0, this.lightning - dt * 3.5);
     const flash = this.lightning > 0.5 || (this.lightning > 0.2 && this.lightning < 0.3) ? this.lightning * 3 : 0;
 
-    this.hemi.intensity = lerp(0.32, 1.0, day) * (1 - this.cloud * 0.25) + flash;
+    this.hemi.intensity = lerp(0.26, 0.5, day) * (1 - this.cloud * 0.25) + flash;
     this.hemi.color.setRGB(lerp(0.32, 0.75, day), lerp(0.38, 0.85, day), lerp(0.7, 1.0, day));
     this.hemi.groundColor.setRGB(lerp(0.12, 0.4, day), lerp(0.1, 0.34, day), lerp(0.16, 0.28, day));
 
@@ -252,8 +252,8 @@ export class Environment {
     const far = this.drawDistance;
     this.fog.far = lerp(far, 180, this.fogAmt);
     this.fog.near = lerp(Math.min(lerp(250, 550, day), far * 0.4), 5, this.fogAmt);
-    this.renderer.toneMappingExposure = lerp(0.95, 0.8, day) + flash * 0.3;
-    (this.scene as THREE.Scene).environmentIntensity = lerp(0.18, 1.0, day);
+    this.renderer.toneMappingExposure = lerp(0.95, 0.7, day) + flash * 0.3;
+    (this.scene as THREE.Scene).environmentIntensity = lerp(0.15, 0.45, day);
 
     // stars & clouds
     (this.stars.material as THREE.PointsMaterial).opacity = smoothstep(0.5, 0.95, this.night) * (1 - this.cloud);

@@ -139,15 +139,15 @@ export const STREET_Z = [
   'Port Blvd',
 ];
 
-const PASTELS = [0xf7b8c8, 0xa8e6cf, 0xfff1b5, 0xb5d8f7, 0xf9cfa5, 0xd9c2f0, 0xf5e6d0, 0x9fe3e0];
+const PASTELS = [0xd9c3a8, 0xc9b49a, 0xe0d2bc, 0xc8a993, 0xcfc0a8, 0xb8c2bb, 0xd6c6b2, 0xbcb7a6];
 const CONCRETE = [0xb8b4ab, 0xa29d94, 0xcac5bb, 0x8e8b86, 0xd6d0c4];
-const GLASS = [0x5d7f99, 0x3d5f78, 0x6a8fa6, 0x4b6b7d, 0x7a9ab0, 0x2f4f63];
+const GLASS = [0x4a5f70, 0x34485a, 0x56697a, 0x3e5262, 0x5f6f7c, 0x2c3c4a];
 const BRICK = [0x9c5a43, 0x8a4b36, 0xa8664c, 0x7d4a3a, 0xb87a5e];
 const DARK = [0x2a2833, 0x332d3d, 0x252a33, 0x3b3340, 0x1f2730];
-const INDUSTRIAL = [0x7d8a8f, 0x8f7f6a, 0x6b7a70, 0x9a8f7c, 0x76838c, 0xa0664a];
-const WHITE = [0xf2efe8, 0xeae4d8, 0xfaf7f0, 0xe6e9ea];
+const INDUSTRIAL = [0x6f7a7e, 0x7f705e, 0x5f6b63, 0x8a806e, 0x69747c, 0x8c5c44];
+const WHITE = [0xdcd8cf, 0xd2ccc0, 0xe2ded4, 0xcfd1d0];
 const NEON = [0xff2d95, 0x29e6ff, 0xb84dff, 0xff9a1f, 0x39ff88, 0xff3355];
-const HOUSE = [0xe8d8bf, 0xc9d6c2, 0xd8c4b0, 0xbfcdd8, 0xe3c7c7, 0xd8d0a8, 0xf0e2c8];
+const HOUSE = [0xcdbfa6, 0xb3baa8, 0xc4b4a0, 0xa9b2b8, 0xc4ada6, 0xbdb592, 0xd4c7ae];
 
 export class CityLayout {
   buildings: BuildingDef[] = [];
@@ -261,7 +261,7 @@ export class CityLayout {
     const front = (depth: number) => (north ? Q.z0 + 2 + depth / 2 : Q.z1 - 2 - depth / 2);
     switch (p.type) {
       case 'safehouse':
-        B.push({ x: Q.cx, z: back(22), w: 30, d: 22, y0: 0, h: 18, style: 'pastel', color: 0xf3c9b6, roof: 'tank', sign: p.name });
+        B.push({ x: Q.cx, z: back(22), w: 30, d: 22, y0: 0, h: 18, style: 'pastel', color: 0xcdb3a0, roof: 'tank', sign: p.name });
         this.parking.push({ x: Q.cx - 8, z: front(6), yaw: Math.PI / 2, district: p.district, kind: 'lot' });
         break;
       case 'police':
@@ -282,7 +282,7 @@ export class CityLayout {
         B.push({ x: Q.cx, z: back(26), w: 32, d: 26, y0: 0, h: 11, style: 'dark', color: 0x1c1a24, roof: 'flat', sign: p.name.toUpperCase(), neon: p.id === 'club_uv' ? 0xb84dff : 0xff2d95 });
         break;
       case 'diner':
-        B.push({ x: Q.cx, z: back(12), w: 20, d: 12, y0: 0, h: 5, style: 'pastel', color: p.id === 'diner_taco' ? 0xffd27a : 0xa8e6cf, roof: 'flat', sign: p.name.toUpperCase(), neon: 0xff3355, awning: 0xd94a5a });
+        B.push({ x: Q.cx, z: back(12), w: 20, d: 12, y0: 0, h: 5, style: 'pastel', color: p.id === 'diner_taco' ? 0xd9b878 : 0x9fbfae, roof: 'flat', sign: p.name.toUpperCase(), neon: 0xff3355, awning: 0xd94a5a });
         this.parking.push({ x: Q.cx - 10, z: front(6), yaw: Math.PI / 2, district: p.district, kind: 'lot' });
         break;
       case 'weapons':
