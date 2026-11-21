@@ -15,7 +15,7 @@ export function Loading() {
   const pct = useUI((s) => s.loadingPct);
   return (
     <div className="screen loading">
-      <div className="logo">NEON BAY</div>
+      <div className="logo">KRITHVIK GTA</div>
       <div className="load-bar">
         <div style={{ width: `${pct}%` }} />
       </div>
@@ -30,8 +30,8 @@ export function MainMenu() {
   return (
     <div className="screen mainmenu">
       <div className="menu-left">
-        <div className="logo">NEON BAY</div>
-        <div className="tagline">An open-world crime story on the neon coast</div>
+        <div className="logo">KRITHVIK GTA</div>
+        <div className="tagline">Drive, fly and rule the streets of Neon Bay</div>
         <div className="menu-buttons">
           {hasSave && (
             <button className="btn primary" onClick={() => G().continueGame()}>
@@ -48,7 +48,7 @@ export function MainMenu() {
             Controls
           </button>
         </div>
-        <div className="menu-foot">Click inside the game to capture the mouse • TAB pauses</div>
+        <div className="menu-foot">Arrow keys or WASD to move • F / Enter to get in cars & planes • K or Z (or left click) to shoot • G switches guns • TAB pauses</div>
       </div>
     </div>
   );
@@ -73,6 +73,17 @@ function Figure({ c }: { c: CharacterDef }) {
       <rect x="45" y="44" width="10" height="12" fill={hex(l.skin)} />
       <ellipse cx="50" cy="32" rx="14" ry="16" fill={hex(l.skin)} />
       {l.hairStyle === 0 && <path d="M36 30 Q38 12 50 14 Q63 12 64 30 Q58 20 50 21 Q42 20 36 30Z" fill={hex(l.hair)} />}
+      {l.faceTex && (
+        <>
+          <clipPath id={`fc-${c.id}`}>
+            <ellipse cx="50" cy="32" rx="14" ry="16" />
+          </clipPath>
+          <image href={import.meta.env.BASE_URL + l.faceTex} x="33" y="15" width="34" height="36" preserveAspectRatio="xMidYMid slice" clipPath={`url(#fc-${c.id})`} />
+        </>
+      )}
+      {l.hairStyle === 4 && <path d="M35 30 L33 18 L39 21 L40 10 L45 17 L49 7 L53 16 L58 9 L59 19 L65 15 L65 30 Q58 19 50 20 Q42 19 35 30Z" fill={hex(l.hair)} />}
+      {l.outfit === 'tux' && <path d="M44 58 L50 70 L56 58 Z" fill="#f4f4f6" />}
+      {l.outfit === 'tux' && <path d="M44 60 L50 63 L56 60 L56 66 L50 63 L44 66 Z" fill="#1d2440" />}
       {l.hairStyle === 1 && <path d="M35 34 Q34 12 50 13 Q66 12 65 34 L66 58 Q60 40 60 26 Q50 20 40 26 Q40 40 34 58Z" fill={hex(l.hair)} />}
     </svg>
   );
@@ -225,24 +236,26 @@ export function SettingsScreen() {
 }
 
 const CONTROLS: [string, string][] = [
-  ['W A S D', 'Move / drive'],
-  ['Mouse', 'Look / aim camera'],
-  ['Shift', 'Sprint'],
-  ['Space', 'Jump & climb ledges / handbrake'],
-  ['X', 'Toggle walk'],
-  ['E', 'Interact, talk, shop, start missions'],
-  ['F', 'Enter / exit vehicle (steal cars)'],
-  ['C', 'Camera mode (near / far / first person)'],
-  ['Mouse wheel', 'Camera distance'],
-  ['Left click', 'Punch / swing / shoot'],
-  ['Right click', 'Block (melee) / aim (guns)'],
-  ['Q', 'Dodge roll'],
-  ['1 – 5', 'Select weapon'],
+  ['↑ ↓ or W S', 'Walk forward / back • drive • plane speed'],
+  ['← → ', 'Turn (walking, driving, flying)'],
+  ['A D', 'Step sideways / steer'],
+  ['Mouse', 'Look / aim camera (click the game first)'],
+  ['Shift', 'Sprint • nitro in crazy cars • dive in planes'],
+  ['Space', 'Jump & climb • handbrake • climb in planes'],
+  ['F or Enter', 'Get in / out of cars, boats and planes'],
+  ['K or Z or left click', 'Shoot / punch (hold for rifle & SMG)'],
+  ['G', 'Next gun'],
+  ['1 – 7', 'Pick a gun (7 = rocket launcher)'],
+  ['Right click', 'Aim (guns) / block (melee)'],
   ['R', 'Reload / next radio station'],
+  ['E', 'Interact, talk, shop, start missions'],
+  ['Q', 'Dodge roll'],
+  ['X', 'Toggle walk'],
+  ['C', 'Camera mode (near / far / first person)'],
   ['H', 'Use med kit / horn in vehicle'],
   ['L', 'Police siren (police vehicles)'],
   ['T', 'Start / stop taxi shift (in a Bay Cab)'],
-  ['M', 'Map & GPS'],
+  ['M', 'Map & GPS (✈ = planes at the airport)'],
   ['I', 'Inventory'],
   ['Tab / P', 'Pause menu'],
 ];

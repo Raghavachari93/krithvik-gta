@@ -13,7 +13,7 @@ export class CameraRig {
   private curDist = 4.2;
   private target = new THREE.Vector3();
   private smoothTarget = new THREE.Vector3();
-  private lastMouseT = 0;
+  lastMouseT = 0;
   private shakeAmt = 0;
   private fovBase = 70;
   private fov = 70;
@@ -88,7 +88,7 @@ export class CameraRig {
     const tgt = this.target;
     if (v) {
       const big = Math.max(v.spec.len, 3.5);
-      desiredDist = (this.mode === 'far' ? big * 2.4 + 4 : big * 1.45 + 2.2) + this.zoomOffset;
+      desiredDist = (v.spec.plane ? (this.mode === 'far' ? 20 : 11) : this.mode === 'far' ? big * 2.4 + 4 : big * 1.45 + 2.2) + this.zoomOffset;
       tgt.set(v.pos.x, v.pos.y + v.spec.height * 0.75 + 0.6, v.pos.z);
       // auto-align behind vehicle when not using mouse
       if (g.time - this.lastMouseT > 1.2 && v.speed > 3) {

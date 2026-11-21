@@ -54,6 +54,7 @@ function Speedo() {
           <span>⚙</span>
           <Bar v={h.vehicleHealth} max={1} cls={h.vehicleHealth < 0.3 ? 'vhp low' : 'vhp'} />
         </div>
+        {h.altitude !== null && <div className="altitude">✈ ALT {h.altitude} m</div>}
         {h.nitro !== null && (
           <div className="mini-bars">
             <span>🔥</span>

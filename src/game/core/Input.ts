@@ -25,7 +25,6 @@ export class Input {
       this.buttons.clear();
     });
     el.addEventListener('mousedown', (e) => {
-      if (!this.locked) return;
       this.buttons.add(e.button);
       this.clicked.add(e.button);
     });

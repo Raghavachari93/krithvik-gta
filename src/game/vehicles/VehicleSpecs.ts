@@ -1,4 +1,4 @@
-export type VehicleClass = 'sedan' | 'sports' | 'super' | 'suv' | 'bike' | 'truck' | 'police' | 'taxi' | 'swat' | 'muscle' | 'van' | 'boat';
+export type VehicleClass = 'sedan' | 'sports' | 'super' | 'suv' | 'bike' | 'truck' | 'police' | 'taxi' | 'swat' | 'muscle' | 'van' | 'boat' | 'plane';
 
 export interface BodyShape {
   gc: number; // ground clearance (bottom of body)
@@ -48,6 +48,10 @@ export interface VehicleSpec {
   steerFalloff: number;
   /** wild one-off builds with special bodywork, underglow and nitro */
   crazy?: 'monster' | 'rocket' | 'hover' | 'limo' | 'rod';
+  /** fixed-wing aircraft */
+  plane?: 'prop' | 'jet';
+  /** airspeed (m/s) needed to fly */
+  stall?: number;
   underglow?: number;
 }
 
@@ -551,9 +555,66 @@ export const VEHICLES: Record<string, VehicleSpec> = {
     crazy: 'rod',
     underglow: 0xc04dff,
   },
+  skyhawk: {
+    id: 'skyhawk',
+    name: 'Skyhawk Stunt Plane',
+    cls: 'plane',
+    price: 150000,
+    mass: 900,
+    maxSpeed: 70,
+    accel: 11,
+    brake: 10,
+    reverse: 3,
+    steerMax: 0.5,
+    grip: 20,
+    driftGrip: 0.5,
+    len: 7.6,
+    wid: 2.2,
+    height: 2.6,
+    health: 900,
+    fuelCap: 400,
+    fuelUse: 0.05,
+    engineBase: 58,
+    engineType: 'sawtooth',
+    colors: [0xd01c2a, 0xffd000, 0x1a6ad0, 0xf2f2f2],
+    shape: s({ gc: 0.6, belt: 1.2, nose: 1.1, tail: 1.4, roofH: 1.8, wheelR: 0.32, wheelX: 1.6, track: 1.1 }),
+    plane: 'prop',
+    stall: 24,
+    gears: 1,
+    steerFalloff: 30,
+  },
+  jetstream: {
+    id: 'jetstream',
+    name: 'Jetstream Fighter',
+    cls: 'plane',
+    price: 400000,
+    mass: 1400,
+    maxSpeed: 125,
+    accel: 18,
+    brake: 12,
+    reverse: 3,
+    steerMax: 0.5,
+    grip: 20,
+    driftGrip: 0.5,
+    len: 10,
+    wid: 2.4,
+    height: 2.8,
+    health: 1200,
+    fuelCap: 600,
+    fuelUse: 0.08,
+    engineBase: 120,
+    engineType: 'triangle',
+    colors: [0x6a7480, 0x111111, 0xf2f2f2, 0x29e6ff],
+    shape: s({ gc: 0.6, belt: 1.2, nose: 1.1, tail: 1.4, roofH: 1.8, wheelR: 0.34, wheelX: 2.2, track: 1.2 }),
+    plane: 'jet',
+    stall: 34,
+    gears: 1,
+    steerFalloff: 30,
+  },
 };
 
 export const CRAZY_IDS = ['behemoth', 'inferno', 'phantom', 'royale', 'hellrod'];
+export const PLANE_IDS = ['skyhawk', 'jetstream'];
 
 export const TRAFFIC_POOL: Record<string, string[]> = {
   downtown: ['comet', 'comet', 'cab', 'cab', 'ranger', 'vortex', 'mule', 'stallion', 'hauler'],

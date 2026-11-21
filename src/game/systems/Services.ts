@@ -22,7 +22,7 @@ const BLIP: Record<string, { glyph: string; color: string; kind: 'safehouse' | '
 
 const DEALER_STOCK: Record<string, string[]> = {
   dealer_bayside: ['comet', 'ranger', 'mule', 'viper', 'stallion', 'hauler', 'cab'],
-  dealer_apex: ['vortex', 'zenith', 'stallion', 'viper', 'behemoth', 'inferno', 'phantom', 'royale', 'hellrod'],
+  dealer_apex: ['vortex', 'zenith', 'stallion', 'viper', 'behemoth', 'inferno', 'phantom', 'royale', 'hellrod', 'skyhawk', 'jetstream'],
 };
 
 /** Shops, properties and city services attached to points of interest. */
@@ -316,7 +316,7 @@ export class Services {
   private weaponMenu() {
     const g = this.g;
     const pl = g.player;
-    const ids: WeaponId[] = ['bat', 'pistol', 'smg', 'shotgun'];
+    const ids: WeaponId[] = ['bat', 'pistol', 'smg', 'shotgun', 'rifle', 'rocket'];
     const items: ShopItem[] = [];
     for (const id of ids) {
       const w = WEAPONS[id];

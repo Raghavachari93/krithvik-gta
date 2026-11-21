@@ -240,8 +240,14 @@ export class Player implements Actor {
     let mf = 0,
       ms = 0;
     if (controls && this.alive && this.knockT <= 0) {
-      mf = inp.axis('KeyS', 'KeyW');
+      mf = Math.max(-1, Math.min(1, inp.axis('KeyS', 'KeyW') + inp.axis('ArrowDown', 'ArrowUp')));
       ms = inp.axis('KeyA', 'KeyD');
+      // arrow left/right turn the camera (and so the walking direction) for keyboard-only play
+      const turn = inp.axis('ArrowRight', 'ArrowLeft');
+      if (turn !== 0) {
+        g.cam.yaw += turn * 2.6 * dt;
+        g.cam.lastMouseT = g.time;
+      }
       if (inp.hit('KeyX')) this.walkMode = !this.walkMode;
     }
     const fwx = Math.sin(camYaw),
@@ -258,7 +264,7 @@ export class Player implements Actor {
     const wd = this.weaponDef;
     this.aiming = controls && this.alive && !wd.melee && inp.mouse(2) && !this.swimming && this.knockT <= 0;
     this.blocking = controls && this.alive && wd.melee && inp.mouse(2) && this.grounded && !this.swimming && this.knockT <= 0;
-    const sprinting = controls && inp.down('ShiftLeft') && dl > 0 && this.stamina > 1 && !this.aiming && !this.blocking;
+    const sprinting = controls && (inp.down('ShiftLeft') || inp.down('ShiftRight')) && dl > 0 && this.stamina > 1 && !this.aiming && !this.blocking;
     let maxSp = this.walkMode ? 1.8 : 4.6;
     if (sprinting) maxSp = 7.6;
     maxSp *= this.def.speed;
@@ -336,7 +342,7 @@ export class Player implements Actor {
         this.vel.z = ddz * 7.5;
       }
       this.handleCombatInput(dt, g);
-      if (inp.hit('KeyF')) this.tryEnterVehicle(g);
+      if (inp.hit('KeyF') || inp.hit('Enter') || inp.hit('NumpadEnter')) this.tryEnterVehicle(g);
       if (inp.hit('KeyH') && this.medkits > 0 && this.health < this.maxHealth) {
         this.medkits--;
         this.health = Math.min(this.maxHealth, this.health + 60);
@@ -479,11 +485,14 @@ export class Player implements Actor {
       const def = WEAPONS[w];
       if (inp.hit(`Digit${def.slot}`) && this.inv[w].owned) this.switchWeapon(w);
     }
+    if (inp.hit('KeyG')) this.cycleWeapon(1);
     if (this.swimming) return;
     const wd = this.weaponDef;
+    const keyFireHit = inp.hit('KeyK') || inp.hit('KeyZ');
+    const keyFireHeld = inp.down('KeyK') || inp.down('KeyZ');
     if (inp.hit('KeyR') && !wd.melee) this.startReload(g);
     if (wd.melee) {
-      if (inp.mouseHit(0) && (this.action === 'none' || (this.action === 'punch' && this.actionT > 0.22))) {
+      if ((inp.mouseHit(0) || inp.hit('KeyK') || inp.hit('KeyZ')) && (this.action === 'none' || (this.action === 'punch' && this.actionT > 0.22))) {
         this.action = wd.id === 'bat' ? 'swing' : 'punch';
         this.actionSide = -this.actionSide;
         this.actionT = 0;
@@ -493,7 +502,7 @@ export class Player implements Actor {
         const t = g.combat.findMeleeTarget(this, 3.5);
         if (t) this.yaw = Math.atan2(t.pos.x - this.pos.x, t.pos.z - this.pos.z);
       }
-    } else if ((wd.id === 'smg' ? inp.mouse(0) : inp.mouseHit(0)) && this.fireCD <= 0 && this.reloadT <= 0 && this.action !== 'dodge') {
+    } else if ((wd.id === 'smg' || wd.id === 'rifle' ? inp.mouse(0) || keyFireHeld : inp.mouseHit(0) || keyFireHit) && this.fireCD <= 0 && this.reloadT <= 0 && this.action !== 'dodge') {
       const slot = this.inv[wd.id];
       if (slot.clip <= 0) {
         if (slot.ammo > 0) this.startReload(g);
@@ -507,7 +516,7 @@ export class Player implements Actor {
       slot.clip--;
       this.fireCD = wd.rate;
       if (!this.aiming) this.yaw = g.cam.yaw;
-      g.combat.playerFire(this, wd);
+      g.combat.playerFire(this, wd, keyFireHeld && !inp.mouse(0));
       if (slot.clip <= 0 && slot.ammo > 0) this.startReload(g);
     }
   }
@@ -573,7 +582,7 @@ export class Player implements Actor {
       if (inp.hit('KeyH')) g.audio.horn(v.pos, true);
       if (inp.hit('KeyL') && v.spec.police) v.sirenOn = !v.sirenOn;
       if (inp.hit('KeyR')) g.audio.nextStation();
-      if (inp.hit('KeyF')) {
+      if (inp.hit('KeyF') || inp.hit('Enter') || inp.hit('NumpadEnter')) {
         this.exitVehicle(g);
         return;
       }

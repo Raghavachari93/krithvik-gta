@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GRAVITY, WATER_Y, terrainY } from '../constants';
+import { GRAVITY, WATER_Y, WORLD, terrainY } from '../constants';
 import { clamp, damp } from '../core/math';
 import type { Game } from '../Game';
 import type { AIDriver } from './AIDriver';
@@ -64,6 +64,11 @@ export class Vehicle {
   nitro = 1;
   boosting = false;
   private fxT = Math.random() * 10;
+  /** flight state (planes) */
+  flyPitch = 0;
+  bank = 0;
+  airspeed = 0;
+  altitude = 0;
 
   constructor(public spec: VehicleSpec, color?: number) {
     this.color = color ?? spec.colors[Math.floor(Math.random() * spec.colors.length)];
@@ -185,6 +190,10 @@ export class Vehicle {
       this.boatPhysics(h, g, vF, vL, fx, fz, rx, rz, engine);
       return;
     }
+    if (sp.plane) {
+      this.planePhysics(h, g, engine);
+      return;
+    }
 
     if (this.grounded) {
       let a = 0;
@@ -302,6 +311,109 @@ export class Vehicle {
     if (!this.grounded) rpmT = 0.3 + inp.throttle * 0.65;
     if (!engine) rpmT = 0;
     this.rpm = damp(this.rpm, rpmT, 7, h);
+  }
+
+  /** Arcade flight: throttle sets airspeed, SPACE climbs, SHIFT dives, steering banks and turns. */
+  private planePhysics(h: number, g: Game, engine: boolean) {
+    const sp = this.spec;
+    const inp = this.input;
+    const piloted = this.driver !== null;
+    const thr = engine && piloted ? inp.throttle : 0;
+    const climb = piloted && inp.handbrake;
+    const dive = piloted && !!inp.boost;
+    const stall = sp.stall ?? 25;
+    if (this.destroyed) {
+      // wreck: fall and come to rest
+      this.airspeed = 0;
+      this.vel.x *= 1 - 2 * h;
+      this.vel.z *= 1 - 2 * h;
+      this.vel.y -= GRAVITY * h;
+      this.pos.addScaledVector(this.vel, h);
+      const fl = Math.max(g.col.surfaceY(this.pos.x, this.pos.z, this.pos.y + 1, 0), terrainY(this.pos.x, this.pos.z) < WATER_Y ? WATER_Y - 1.5 : -999);
+      if (this.pos.y <= fl) {
+        this.pos.y = fl;
+        this.vel.set(0, 0, 0);
+        this.grounded = true;
+      }
+      this.flyPitch = damp(this.flyPitch, 0, 2, h);
+      return;
+    }
+    let s = this.airspeed;
+    s += sp.accel * thr * Math.max(0, 1 - (s / sp.maxSpeed) ** 2) * h;
+    if (inp.brake > 0 && piloted) s -= (this.grounded ? sp.brake : 5) * inp.brake * h;
+    s -= s * (this.grounded ? 0.03 : 0.004) * h + (this.grounded && thr === 0 ? 2 * h : 0);
+    if (!this.grounded) s -= Math.sin(this.flyPitch) * 5 * h;
+    s = clamp(s, this.grounded ? -3 : 0, sp.maxSpeed * 1.15);
+    const prevX = this.pos.x,
+      prevZ = this.pos.z;
+    if (this.grounded) {
+      this.bank = damp(this.bank, 0, 6, h);
+      this.flyPitch = damp(this.flyPitch, 0, 6, h);
+      if (!piloted && Math.abs(s) < 0.3) s = 0;
+      this.angVel = -this.steer * clamp(Math.abs(s) / 6, 0, 1) * 1.6 * Math.sign(s || 1);
+      this.yaw += this.angVel * h;
+      // lift off once fast enough (holding SPACE lifts off a bit earlier)
+      if (piloted && s > stall * (climb ? 1.0 : 1.12)) {
+        this.grounded = false;
+        this.flyPitch = 0.22;
+        this.pos.y += 0.3;
+      }
+      this.vel.set(Math.sin(this.yaw) * s, 0, Math.cos(this.yaw) * s);
+    } else {
+      let pt = climb ? 0.5 : dive ? -0.55 : 0.04;
+      if (s < stall) pt -= 0.5 * (1 - s / stall);
+      if (this.pos.y > 520) pt = Math.min(pt, -0.1);
+      this.flyPitch = damp(this.flyPitch, pt, 1.5, h);
+      this.bank = damp(this.bank, (piloted ? inp.steer : 0) * 0.85, 2.4, h);
+      this.angVel = -this.bank * 1.1 * clamp(s / 30, 0.4, 1.3);
+      this.yaw += this.angVel * h;
+      const cp = Math.cos(this.flyPitch);
+      this.vel.set(Math.sin(this.yaw) * cp * s, Math.sin(this.flyPitch) * s, Math.cos(this.yaw) * cp * s);
+      if (s < stall) this.vel.y -= (stall - s) * 0.7;
+    }
+    this.pos.addScaledVector(this.vel, h);
+    this.airspeed = s;
+    this.forwardSpeed = s;
+    this.rpm = clamp(0.22 + thr * 0.6 + (s / sp.maxSpeed) * 0.3, 0, 1);
+    this.gear = 1;
+    // world limits: turn back towards the city
+    if (this.pos.x < WORLD.minX - 600 || this.pos.x > WORLD.maxX + 600 || this.pos.z < WORLD.minZ - 600 || this.pos.z > WORLD.maxZ + 600) this.yaw += 1.2 * h;
+    const wreck = () => {
+      if (this.pos.y < WATER_Y + 0.5) g.fx.splash(this.pos, 3);
+      this.health = 0;
+      this.airspeed = 0;
+      this.vel.set(0, 0, 0);
+      this.explode(g);
+    };
+    // buildings
+    const boxes = g.col.query(this.pos.x - 0.5, this.pos.z - 0.5, this.pos.x + 0.5, this.pos.z + 0.5);
+    for (const b of boxes) {
+      if (this.pos.x < b.minX || this.pos.x > b.maxX || this.pos.z < b.minZ || this.pos.z > b.maxZ) continue;
+      if (b.maxY > this.pos.y + 0.6 && b.minY < this.pos.y + 2) {
+        if (s > 14) return wreck();
+        this.pos.x = prevX;
+        this.pos.z = prevZ;
+        this.airspeed = 0;
+        this.vel.set(0, 0, 0);
+        break;
+      }
+    }
+    const ground = g.col.surfaceY(this.pos.x, this.pos.z, this.pos.y + 0.6, 0);
+    const water = terrainY(this.pos.x, this.pos.z) < WATER_Y;
+    const floor = water ? Math.max(ground, WATER_Y) : ground;
+    this.altitude = this.pos.y - floor;
+    if (!this.grounded && this.pos.y <= floor) {
+      if (!water && this.vel.y > -9 && this.flyPitch > -0.4 && Math.abs(this.bank) < 0.7) {
+        this.grounded = true;
+        this.pos.y = floor;
+        if (this.vel.y < -5) this.damage(40, g, false);
+      } else return wreck();
+    }
+    if (this.grounded) {
+      if (water) return wreck();
+      if (floor < this.pos.y - 0.8) this.grounded = false; // rolled off an edge
+      else this.pos.y = floor;
+    }
   }
 
   private boatPhysics(h: number, g: Game, vF: number, vL: number, fx: number, fz: number, rx: number, rz: number, engine: boolean) {
@@ -441,6 +553,16 @@ export class Vehicle {
       } else this.pitch = damp(this.pitch, clamp(0.25 - this.vel.y * 0.02, -0.3, 0.45), 1.2, dt);
       if (sp.bike) this.roll = damp(this.roll, clamp(-this.angVel * this.forwardSpeed * 0.055, -0.8, 0.8), 8, dt);
       else this.roll = damp(this.roll, clamp(this.angVel * this.forwardSpeed * 0.0045, -0.07, 0.07), 6, dt);
+    }
+    if (sp.plane) {
+      this.pitch = -this.flyPitch;
+      this.roll = this.bank;
+      if (this.rig.prop && !this.destroyed) this.rig.prop.rotation.z += (this.driver ? 8 + this.input.throttle * 55 : this.airspeed > 1 ? 4 : 0) * dt;
+      for (const f of this.rig.flames) {
+        const k = this.destroyed || !this.driver ? 0 : 0.35 + this.input.throttle * 0.8 + Math.random() * 0.2;
+        f.visible = k > 0.1;
+        f.scale.set(0.8 + k * 0.2, 0.8 + k * 0.2, k);
+      }
     }
     this.rig.body.rotation.set(this.pitch, 0, this.roll);
     if (sp.crazy && !this.destroyed) {

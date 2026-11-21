@@ -8,15 +8,20 @@ export interface CharacterLook {
   pants: number;
   shoes: number;
   hair: number;
-  hairStyle: number; // 0 short, 1 long, 2 bald, 3 cap
+  hairStyle: number; // 0 short, 1 long, 2 bald, 3 cap, 4 spiky
   hat?: number;
   height: number;
   build: number;
   jacket?: number;
+  /** photo face texture (path under /public) */
+  faceTex?: string;
+  /** tuxedo details: white shirt, satin lapels, bow tie, pocket square */
+  outfit?: 'tux';
+  headScale?: number;
 }
 
 export type Action = 'none' | 'punch' | 'swing' | 'block' | 'dodge' | 'interact' | 'phone' | 'handsUp' | 'aim' | 'talk' | 'cheer' | 'hit';
-export type WeaponVisual = 'none' | 'bat' | 'pistol' | 'smg' | 'shotgun';
+export type WeaponVisual = 'none' | 'bat' | 'pistol' | 'smg' | 'shotgun' | 'rifle' | 'rocket';
 
 export interface AnimState {
   speed: number;
@@ -96,6 +101,56 @@ function faceGeo() {
 }
 const faceMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45 });
 
+/** Front-of-head shell with UVs projected straight on, so a photo maps onto the face. */
+function photoFaceGeo() {
+  const g = new THREE.SphereGeometry(0.1172, 28, 20, Math.PI / 2 - 1.3, 2.6, Math.PI * 0.12, Math.PI * 0.78).scale(0.92, 1.08, 1).translate(0, 0.14, 0.012);
+  const pos = g.attributes.position as THREE.BufferAttribute;
+  const uv = g.attributes.uv as THREE.BufferAttribute;
+  const W = 0.205,
+    top = 0.262,
+    bot = 0.012;
+  for (let i = 0; i < pos.count; i++) uv.setXY(i, (pos.getX(i) + W / 2) / W, (pos.getY(i) - bot) / (top - bot));
+  return g;
+}
+const photoMats = new Map<string, THREE.MeshStandardMaterial>();
+function photoFaceMat(path: string) {
+  let m = photoMats.get(path);
+  if (!m) {
+    const tex = new THREE.TextureLoader().load(import.meta.env.BASE_URL + path);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = 4;
+    m = new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.55, polygonOffset: true, polygonOffsetFactor: -2 });
+    photoMats.set(path, m);
+  }
+  return m;
+}
+
+/** Spiky boy's haircut: crown cap, back piece and a ring of tufts. */
+function spikyHairGeo() {
+  const parts: THREE.BufferGeometry[] = [
+    new THREE.SphereGeometry(0.124, 16, 7, 0, Math.PI * 2, 0, Math.PI * 0.34),
+    new THREE.SphereGeometry(0.123, 16, 8, Math.PI / 2 + 1.05, Math.PI * 2 - 2.1, 0, Math.PI * 0.56),
+  ];
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let i = 0; i < 34; i++) {
+    const theta = 0.12 + rnd() * 0.95; // from the top down
+    const phi = rnd() * Math.PI * 2;
+    const front = Math.sin(phi) > 0.55; // over the forehead
+    const th = front ? Math.min(theta, 0.75) : theta;
+    const dir = new THREE.Vector3(-Math.cos(phi) * Math.sin(th), Math.cos(th), Math.sin(phi) * Math.sin(th));
+    const len = 0.05 + rnd() * 0.05;
+    const cone = new THREE.ConeGeometry(0.026 + rnd() * 0.012, len, 5);
+    cone.translate(0, len / 2, 0);
+    // tufts lean up and back like gelled hair, the fringe flicks forward
+    const lean = dir.clone().lerp(new THREE.Vector3(0, 1, front ? 0.5 : -0.3), 0.45).normalize();
+    cone.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), lean));
+    cone.translate(dir.x * 0.112, dir.y * 0.112, dir.z * 0.112);
+    parts.push(cone);
+  }
+  return mergeGeometries(parts.map((p) => (p.index ? p.toNonIndexed() : p)).map((p) => (p.deleteAttribute('uv'), p)))!.translate(0, 0.16, -0.005);
+}
+
 let G: Record<string, THREE.BufferGeometry> | null = null;
 function geos() {
   if (G) return G;
@@ -104,6 +159,12 @@ function geos() {
     chest: new THREE.CapsuleGeometry(0.17, 0.3, 4, 10).scale(1.15, 1, 0.7).translate(0, 0.32, 0),
     head: new THREE.SphereGeometry(0.115, 14, 10).scale(0.92, 1.08, 1).translate(0, 0.14, 0.01),
     face: faceGeo(),
+    photoFace: photoFaceGeo(),
+    hairSpiky: spikyHairGeo(),
+    ears: mergeGeometries([
+      new THREE.SphereGeometry(0.026, 8, 6).scale(0.45, 1, 0.8).translate(0.104, 0.142, 0.0),
+      new THREE.SphereGeometry(0.026, 8, 6).scale(0.45, 1, 0.8).translate(-0.104, 0.142, 0.0),
+    ])!,
     faceSkin: mergeGeometries([
       new THREE.BoxGeometry(0.024, 0.045, 0.034).rotateX(-0.2).translate(0, 0.132, 0.122), // nose
       new THREE.SphereGeometry(0.026, 8, 6).scale(0.45, 1, 0.8).translate(0.104, 0.142, 0.0), // ears
@@ -132,11 +193,23 @@ function geos() {
     pistol: new THREE.BoxGeometry(0.04, 0.09, 0.2).translate(0, -0.27, 0.08),
     smg: new THREE.BoxGeometry(0.05, 0.12, 0.42).translate(0, -0.27, 0.16),
     shotgun: new THREE.BoxGeometry(0.05, 0.08, 0.85).translate(0, -0.27, 0.32),
+    rifle: mergeGeometries([
+      new THREE.BoxGeometry(0.05, 0.1, 0.62).translate(0, -0.27, 0.22), // body + barrel
+      new THREE.BoxGeometry(0.04, 0.16, 0.06).translate(0, -0.37, 0.18).rotateX(0.0), // magazine
+      new THREE.BoxGeometry(0.035, 0.035, 0.3).translate(0, -0.25, 0.66), // barrel tip
+      new THREE.BoxGeometry(0.045, 0.06, 0.22).translate(0, -0.29, -0.15), // stock
+    ].map((g) => g.toNonIndexed()))!,
+    rocket: mergeGeometries([
+      new THREE.CylinderGeometry(0.075, 0.075, 1.1, 10).rotateX(Math.PI / 2).translate(0, -0.2, 0.2).toNonIndexed(),
+      new THREE.ConeGeometry(0.06, 0.16, 8).rotateX(Math.PI / 2).translate(0, -0.2, 0.83).toNonIndexed(),
+      new THREE.BoxGeometry(0.04, 0.12, 0.06).translate(0, -0.3, 0.1).toNonIndexed(),
+    ])!,
   };
   return G;
 }
 
 const weaponMat = new THREE.MeshStandardMaterial({ color: 0x1d1f22, roughness: 0.4, metalness: 0.7 });
+const rocketMat = new THREE.MeshStandardMaterial({ color: 0x4a5a2a, roughness: 0.6, metalness: 0.3 });
 const batMat = new THREE.MeshStandardMaterial({ color: 0x9a7448, roughness: 0.6 });
 
 /** Procedural humanoid with blended procedural animation. Root sits at the feet. */
@@ -189,9 +262,40 @@ export class CharacterModel {
     this.head.position.y = 0.6;
     add(this.head, g.neck, skin);
     this.headMeshes.push(add(this.head, g.head, skin));
-    const face = new THREE.Mesh(g.face, faceMat);
-    this.head.add(face);
-    this.headMeshes.push(face, add(this.head, g.faceSkin, skin));
+    if (look.faceTex) {
+      const face = new THREE.Mesh(g.photoFace, photoFaceMat(look.faceTex));
+      this.head.add(face);
+      this.headMeshes.push(face, add(this.head, g.ears, skin));
+      this.head.scale.setScalar(look.headScale ?? 1);
+    } else {
+      const face = new THREE.Mesh(g.face, faceMat);
+      this.head.add(face);
+      this.headMeshes.push(face, add(this.head, g.faceSkin, skin));
+    }
+    if (look.hairStyle === 4) this.headMeshes.push(add(this.head, g.hairSpiky, hair));
+    if (look.outfit === 'tux') {
+      const white = mat(0xf4f4f6, 0.6),
+        satin = new THREE.MeshStandardMaterial({ color: 0x1d2440, roughness: 0.25, metalness: 0.15 }),
+        dark = mat(0x0c0e18, 0.4);
+      const deco = (geo: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z: number, rz = 0, ry = 0) => {
+        const mesh = new THREE.Mesh(geo, m);
+        mesh.position.set(x, y, z);
+        mesh.rotation.set(0, ry, rz);
+        this.torso.add(mesh);
+        return mesh;
+      };
+      // white shirt V and collar
+      deco(new THREE.BoxGeometry(0.11, 0.17, 0.02), white, 0, 0.53, 0.118);
+      deco(new THREE.CylinderGeometry(0.068, 0.072, 0.05, 12, 1, true), white, 0, 0.6, 0.0);
+      // satin shawl lapels framing the V
+      for (const sx of [1, -1]) deco(new THREE.BoxGeometry(0.045, 0.26, 0.022), satin, sx * 0.075, 0.46, 0.121, sx * 0.32, sx * 0.25);
+      // bow tie
+      for (const sx of [1, -1]) deco(new THREE.ConeGeometry(0.03, 0.05, 4).rotateZ((sx * Math.PI) / 2), satin, sx * 0.026, 0.595, 0.128);
+      deco(new THREE.BoxGeometry(0.022, 0.024, 0.02), satin, 0, 0.595, 0.13);
+      // waistcoat buttons + pocket square
+      for (let i = 0; i < 3; i++) deco(new THREE.SphereGeometry(0.009, 6, 4), dark, 0.0, 0.42 - i * 0.07, 0.123);
+      deco(new THREE.BoxGeometry(0.045, 0.02, 0.012), satin, -0.11, 0.49, 0.112);
+    }
     if (look.hairStyle === 0) this.headMeshes.push(add(this.head, g.hairShort, hair));
     if (look.hairStyle === 1) this.headMeshes.push(add(this.head, g.hairLong, hair));
     if (look.hairStyle === 3) {
@@ -207,7 +311,7 @@ export class CharacterModel {
       add(arm, g.upperArm, look.jacket !== undefined ? mat(look.jacket) : shirt);
       arm.add(fore);
       fore.position.y = -0.29;
-      add(fore, g.foreArm, skin);
+      add(fore, g.foreArm, look.outfit === 'tux' && look.jacket !== undefined ? mat(look.jacket) : skin);
       add(fore, g.hand, skin);
     }
     this.foreR.add(this.handR);
@@ -233,7 +337,7 @@ export class CharacterModel {
     }
     if (w === 'none') return;
     const g = geos();
-    this.weaponMesh = new THREE.Mesh(g[w], w === 'bat' ? batMat : weaponMat);
+    this.weaponMesh = new THREE.Mesh(g[w], w === 'bat' ? batMat : w === 'rocket' ? rocketMat : weaponMat);
     this.weaponMesh.castShadow = true;
     this.foreR.add(this.weaponMesh);
   }

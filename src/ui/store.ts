@@ -76,6 +76,7 @@ export interface Hud {
   inVehicle: boolean;
   speed: number;
   nitro: number | null;
+  altitude: number | null;
   vehicleName: string;
   vehicleHealth: number;
   fuel: number;
@@ -176,6 +177,7 @@ const emptyHud: Hud = {
   inVehicle: false,
   speed: 0,
   nitro: null,
+  altitude: null,
   vehicleName: '',
   vehicleHealth: 1,
   fuel: 1,

@@ -26,6 +26,8 @@ export interface VehicleRig {
   flames: THREE.Mesh[];
   extras?: THREE.Group;
   hoverPads?: THREE.MeshBasicMaterial;
+  /** aircraft propeller */
+  prop?: THREE.Object3D;
 }
 
 function colorize(g: THREE.BufferGeometry, c: number) {
@@ -398,13 +400,61 @@ function buildBoat(spec: VehicleSpec) {
   return { body, glass, head, tail, wheel: new THREE.BufferGeometry() };
 }
 
+/** Light aircraft / jet: fuselage, wings, tail, canopy. Length along +Z, wheels on the ground at y=0. */
+function buildPlane(spec: VehicleSpec) {
+  const L = spec.len,
+    h = L / 2;
+  const jet = spec.plane === 'jet';
+  const cy = 1.25; // fuselage centre height
+  const span = jet ? 8.2 : 10.5;
+  const along = (g: THREE.BufferGeometry) => g.rotateX(Math.PI / 2); // cylinder axis Y -> Z
+  const parts: THREE.BufferGeometry[] = [];
+  // fuselage: main tube, nose, tapering tail boom
+  parts.push(colorize(along(new THREE.CylinderGeometry(0.62, 0.66, L * 0.5, 16)).translate(0, cy, h * 0.15), 0xffffff));
+  parts.push(colorize(along(new THREE.CylinderGeometry(jet ? 0.08 : 0.42, 0.62, L * 0.18, 16)).translate(0, cy - (jet ? 0.05 : 0), h * 0.15 + L * 0.34), jet ? 0x2a2c30 : 0xffffff));
+  parts.push(colorize(along(new THREE.CylinderGeometry(0.66, 0.22, L * 0.34, 14)).translate(0, cy + 0.12, h * 0.15 - L * 0.42), 0xffffff));
+  // wings (jet: swept delta), with dark wingtips
+  if (jet) {
+    const sh = new THREE.Shape();
+    sh.moveTo(0, 1.6);
+    sh.lineTo(span / 2, -1.6);
+    sh.lineTo(span / 2, -2.3);
+    sh.lineTo(-span / 2, -2.3);
+    sh.lineTo(-span / 2, -1.6);
+    sh.closePath();
+    const w = new THREE.ExtrudeGeometry(sh, { depth: 0.12, bevelEnabled: false }).rotateX(Math.PI / 2).translate(0, cy - 0.1, 0.2);
+    parts.push(colorize(w, 0xffffff));
+  } else {
+    parts.push(colorize(new THREE.BoxGeometry(span, 0.13, 1.6).translate(0, cy + 0.45, h * 0.25), 0xffffff));
+    for (const sx of [1, -1]) parts.push(colorize(new THREE.BoxGeometry(0.5, 0.14, 1.62).translate(sx * (span / 2 - 0.25), cy + 0.45, h * 0.25), DARK));
+  }
+  // tail: horizontal stabiliser + fin
+  parts.push(colorize(new THREE.BoxGeometry(jet ? 3.4 : 3.8, 0.08, 1.0).translate(0, cy + 0.2, -h + 0.7), 0xffffff));
+  parts.push(colorize(new THREE.BoxGeometry(0.1, jet ? 1.7 : 1.4, 1.2).translate(0, cy + 0.95, -h + 0.75), 0xffffff));
+  // landing gear struts
+  for (const [x, z] of [
+    [spec.shape.track, spec.shape.wheelX],
+    [-spec.shape.track, spec.shape.wheelX],
+    [spec.shape.track, -spec.shape.wheelX],
+    [-spec.shape.track, -spec.shape.wheelX],
+  ])
+    parts.push(colorize(new THREE.BoxGeometry(0.08, cy - 0.3, 0.08).translate(x * 0.8, (cy - 0.3) / 2 + 0.3, z), DARK));
+  if (jet) for (const sx of [1, -1]) parts.push(colorize(new THREE.BoxGeometry(0.4, 0.5, 1.6).translate(sx * 0.72, cy - 0.1, 0.4), DARK)); // intakes
+  const body = mergeGeometries(parts.map((p) => (p.index ? p.toNonIndexed() : p)))!;
+  body.computeVertexNormals();
+  const glass = new THREE.SphereGeometry(0.5, 14, 10).scale(0.85, 0.75, jet ? 2.4 : 1.8).translate(0, cy + 0.5, h * 0.2 + (jet ? 0.9 : 0.4));
+  const head = mergeGeometries([new THREE.BoxGeometry(0.2, 0.12, 0.06).translate(span / 2 - 0.4, cy + (jet ? -0.1 : 0.45), h * 0.25 + 0.82), new THREE.BoxGeometry(0.2, 0.12, 0.06).translate(-span / 2 + 0.4, cy + (jet ? -0.1 : 0.45), h * 0.25 + 0.82)])!;
+  const tail = new THREE.BoxGeometry(0.12, 0.2, 0.12).translate(0, cy + 1.7, -h + 0.2);
+  return { body, glass, head, tail, wheel: wheelGeo(spec.shape.wheelR, 0.2) };
+}
+
 const driverSkin = new THREE.MeshStandardMaterial({ color: 0xc89070, roughness: 0.8 });
 const driverShirt = new THREE.MeshStandardMaterial({ color: 0x3a4a6a, roughness: 0.8 });
 
 export function buildVehicleRig(spec: VehicleSpec, color: number): VehicleRig {
   let g = cache.get(spec.id);
   if (!g) {
-    g = spec.bike ? buildBike(spec) : spec.boat ? buildBoat(spec) : buildCar(spec);
+    g = spec.plane ? buildPlane(spec) : spec.bike ? buildBike(spec) : spec.boat ? buildBoat(spec) : buildCar(spec);
     cache.set(spec.id, g);
   }
   const group = new THREE.Group();
@@ -480,7 +530,8 @@ export function buildVehicleRig(spec: VehicleSpec, color: number): VehicleRig {
   }
   // seat position (driver on the left: +x local)
   let seat: THREE.Vector3;
-  if (spec.bike) seat = new THREE.Vector3(0, 0.0, -0.3);
+  if (spec.plane) seat = new THREE.Vector3(0, 0.78, spec.len * 0.1 + (spec.plane === 'jet' ? 0.7 : 0.25));
+  else if (spec.bike) seat = new THREE.Vector3(0, 0.0, -0.3);
   else if (spec.boat) seat = new THREE.Vector3(0.0, 0.6, -spec.len * 0.12);
   else if (spec.cls === 'truck') seat = new THREE.Vector3(0.5, 0.75, spec.len / 2 - 1.3);
   else seat = new THREE.Vector3(spec.wid * 0.22, sh.gc - 0.05, (sh.cabFront + sh.cabRear) / 2 + 0.1);
@@ -497,5 +548,32 @@ export function buildVehicleRig(spec: VehicleSpec, color: number): VehicleRig {
   let flames: THREE.Mesh[] = [];
   let extras: THREE.Group | undefined, hoverPads: THREE.MeshBasicMaterial | undefined;
   if (spec.crazy) ({ extras, flames, hoverPads } = buildCrazyExtras(spec, { body, group, wheels, paint }));
-  return { group, body, wheels, tailMat, headMat, sirenR, sirenB, paint, seat, driverDummy, glass: glassMesh, flames, extras, hoverPads };
+  let prop: THREE.Object3D | undefined;
+  if (spec.plane) {
+    const h = spec.len / 2;
+    if (spec.plane === 'prop') {
+      prop = new THREE.Group();
+      prop.position.set(0, 1.25, h * 0.15 + spec.len * 0.43 + 0.05);
+      const hub = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.45, 12).rotateX(Math.PI / 2), chromeMat);
+      const blades = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.18, 0.05), darkMat);
+      const disc = new THREE.Mesh(new THREE.CircleGeometry(1.15, 24), new THREE.MeshBasicMaterial({ color: 0x222222, transparent: true, opacity: 0.12, depthWrite: false, side: THREE.DoubleSide }));
+      prop.add(hub, blades, disc);
+      body.add(prop);
+    } else {
+      const f = makeFlame(0.32, 3.2);
+      f.position.set(0, 1.37, -h + 0.0);
+      body.add(f);
+      flames.push(f);
+    }
+    // wingtip navigation lights
+    const span = spec.plane === 'jet' ? 8.2 : 10.5;
+    const navR = new THREE.Mesh(new THREE.SphereGeometry(0.09, 6, 4), new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 0.1, 0.1), toneMapped: false }));
+    const navG = new THREE.Mesh(new THREE.SphereGeometry(0.09, 6, 4), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.1, 3, 0.4), toneMapped: false }));
+    const wy = spec.plane === 'jet' ? 1.2 : 1.7;
+    const wz = spec.plane === 'jet' ? -1.6 + 0.2 : h * 0.25;
+    navR.position.set(span / 2, wy, wz);
+    navG.position.set(-span / 2, wy, wz);
+    body.add(navR, navG);
+  }
+  return { group, body, wheels, tailMat, headMat, sirenR, sirenB, paint, seat, driverDummy, glass: glassMesh, flames, extras, hoverPads, prop };
 }

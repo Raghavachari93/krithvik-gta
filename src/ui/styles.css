@@ -110,7 +110,7 @@ kbd {
 /* ---------------- logo / loading / main menu ---------------- */
 .logo {
   font-family: 'Monoton', 'Rajdhani', cursive;
-  font-size: clamp(52px, 9vw, 120px);
+  font-size: clamp(36px, 6.5vw, 96px);
   line-height: 1;
   color: #fff;
   letter-spacing: 0.05em;
@@ -1132,4 +1132,11 @@ select {
   font-size: 10px;
   letter-spacing: 1px;
   opacity: 0.7;
+}
+
+.altitude {
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: #29e6ff;
+  text-shadow: 0 0 6px rgba(41, 230, 255, 0.7);
 }

@@ -15,6 +15,18 @@ export interface CharacterDef {
 
 export const ROSTER: CharacterDef[] = [
   {
+    id: 'krithvik',
+    name: 'Krithvik',
+    tagline: 'The Boss',
+    bio: 'Sharp suit, sharper style. Krithvik rolls into the city in his navy tuxedo and bow tie, ready to drive, fly and run the streets.',
+    look: { skin: 0xc98d66, shirt: 0xf4f4f6, pants: 0x161b30, shoes: 0x0b0b0e, hair: 0x050506, hairStyle: 4, height: 1.0, build: 1.0, jacket: 0x161b30, faceTex: 'avatar/krithvik_face.png', outfit: 'tux', headScale: 1.12 },
+    health: 120,
+    speed: 1.05,
+    stamina: 1.2,
+    melee: 1.1,
+    accent: '#ffd000',
+  },
+  {
     id: 'rico',
     name: 'Rico Santos',
     tagline: 'The Wheelman',

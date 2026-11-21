@@ -14,7 +14,7 @@ const GradeShader = {
       vec3 col = mix(vec3(l), c.rgb, uSat); col = (col - 0.5) * uContrast + 0.5; gl_FragColor = vec4(clamp(col,0.0,1.0), c.a); }`,
 };
 import { DISTRICT_NAMES, districtOf, locateBlock, inRect, AIRPORT, ISLAND, PORT, BEACH, ROAD_HALF, roadC } from './constants';
-import { CRAZY_IDS, VEHICLES } from './vehicles/VehicleSpecs';
+import { CRAZY_IDS, PLANE_IDS, VEHICLES } from './vehicles/VehicleSpecs';
 import { clamp, formatMoney } from './core/math';
 import { Input } from './core/Input';
 import { CollisionWorld } from './world/Collision';
@@ -44,7 +44,7 @@ import { ActivityManager } from './activities/Activities';
 import { Services } from './systems/Services';
 import { ROSTER, characterById } from './characters/Roster';
 import { Actor } from './characters/Actor';
-import { WEAPONS, newInventory } from './combat/Weapons';
+import { WEAPONS, WeaponId, newInventory } from './combat/Weapons';
 import type { Vehicle } from './vehicles/Vehicle';
 import { MissionIntroData, MissionResultData, Settings, ShopData, UIBridge, useUI } from '../ui/store';
 
@@ -301,7 +301,7 @@ export class Game {
     this.resetWorld();
     this.progress.load({} as ReturnType<Progression['serialize']>);
     this.progress.cash = 500;
-    this.progress.unlocked = new Set(['comet', 'cab', 'ranger', 'mule', 'viper', 'stallion', 'hauler', 'wave', 'marlin', ...CRAZY_IDS]);
+    this.progress.unlocked = new Set(['comet', 'cab', 'ranger', 'mule', 'viper', 'stallion', 'hauler', 'wave', 'marlin', ...CRAZY_IDS, ...PLANE_IDS]);
     const def = characterById(charId);
     this.player.inv = newInventory();
     this.player.weapon = 'fists';
@@ -310,12 +310,14 @@ export class Game {
     this.player.armor = 0;
     this.player.medkits = 1;
     this.player.alive = true;
+    this.giveStarterGuns();
+    this.player.switchWeapon('pistol');
     this.lastSafehouse = 'sh_starter';
     this.env.skipTo(12.5);
     if (!this.env.forced) this.env.weather = 'clear';
     this.spawnAtSafehouse('sh_starter');
     this.afterLoad();
-    this.ui.bigMessage('NEON BAY', `Welcome home, ${def.name.split(' ')[0]}.`, '#ff2d95');
+    this.ui.bigMessage('KRITHVIK GTA', `Welcome to Neon Bay, ${def.name.split(' ')[0]}!`, '#ffd000');
     setTimeout(() => this.ui.notify('Follow the yellow marker on your map to meet Marisol Vega.', 'info'), 2500);
     setTimeout(() => this.ui.notify('Press M for the map, TAB to pause. F enters vehicles.', 'info'), 6000);
     this.save.save('sh_starter');
@@ -323,11 +325,11 @@ export class Game {
 
   continueGame() {
     const d = this.save.read();
-    if (!d) return this.startNewGame('rico');
+    if (!d) return this.startNewGame('krithvik');
     this.audio.init();
     this.resetWorld();
     this.progress.load(d.progress);
-    for (const id of CRAZY_IDS) this.progress.unlocked.add(id);
+    for (const id of [...CRAZY_IDS, ...PLANE_IDS]) this.progress.unlocked.add(id);
     const def = characterById(d.character);
     this.player.setCharacter(def, this.scene);
     this.player.inv = { ...newInventory(), ...d.player.inv };
@@ -337,12 +339,13 @@ export class Game {
     this.player.armor = d.player.armor ?? 0;
     this.player.medkits = d.player.medkits ?? 0;
     this.player.alive = true;
+    this.giveStarterGuns();
     this.env.skipTo(d.env.hours);
     if (!this.env.forced) this.env.weather = d.env.weather;
     this.lastSafehouse = d.spawnAt ?? 'sh_starter';
     this.spawnAtSafehouse(this.lastSafehouse);
     this.afterLoad();
-    this.ui.bigMessage('NEON BAY', 'Progress loaded', '#29e6ff');
+    this.ui.bigMessage('KRITHVIK GTA', 'Progress loaded', '#29e6ff');
   }
 
   private afterLoad() {
@@ -367,6 +370,25 @@ export class Game {
     this.spawnCrazyShowcase();
   }
 
+  /** Every gun, with plenty of ammo (topped up on new game and on load). */
+  giveStarterGuns() {
+    const kit: [WeaponId, number][] = [
+      ['bat', 0],
+      ['pistol', 120],
+      ['smg', 300],
+      ['shotgun', 60],
+      ['rifle', 300],
+      ['rocket', 12],
+    ];
+    const cur = this.player.weapon;
+    for (const [w, ammo] of kit) {
+      const s = this.player.inv[w];
+      if (!s.owned) this.player.giveWeapon(w, ammo);
+      else if (s.ammo + s.clip < ammo) s.ammo = ammo - s.clip;
+    }
+    this.player.switchWeapon(cur);
+  }
+
   /** Line up the wild cars at the kerb of the nearest road so they are right there to try. */
   spawnCrazyShowcase() {
     for (const v of [...this.vehicles.list]) if (v.missionTag === 'showcase') this.vehicles.remove(v);
@@ -382,7 +404,7 @@ export class Game {
     const off = ROAD_HALF - 2.2;
     const side = alongZ ? (px > roadC(bi) ? 1 : -1) : pz > roadC(bj) ? 1 : -1;
     let cursor = (alongZ ? pz : px) - 26;
-    CRAZY_IDS.forEach((id) => {
+    [...CRAZY_IDS, 'skyhawk'].forEach((id) => {
       const len = VEHICLES[id].len;
       let u = cursor + len / 2;
       // keep clear of junctions
@@ -405,6 +427,18 @@ export class Game {
       v.missionTag = 'showcase';
       v.fuel = v.spec.fuelCap;
     });
+    // planes lined up on the airport runway, ready for take-off
+    [
+      ['skyhawk', -836, -290],
+      ['jetstream', -816, -290],
+    ].forEach(([id, x, z]) => {
+      const v = this.vehicles.spawn(id as string, x as number, z as number, 0);
+      v.persistent = true;
+      v.missionTag = 'showcase';
+      v.fuel = v.spec.fuelCap;
+    });
+    this.markers.removeBlip('planes');
+    this.markers.addBlip({ id: 'planes', x: -830, z: -270, glyph: '✈', color: '#29e6ff', label: 'Planes (airport runway)', kind: 'vehicle' });
   }
 
   quitToMenu() {
@@ -552,6 +586,10 @@ export class Game {
     this.missions.onEnterVehicle(v);
     if (v.spec.cls === 'taxi' && !this.missions.active) this.ui.notify('Bay Cab: press T to start a taxi shift.', 'info');
     if (v.spec.crazy) this.ui.notify(`${v.spec.name}! Hold SHIFT for nitro.`, 'info');
+    if (v.spec.plane) {
+      this.ui.notify(`${v.spec.name}: hold W / ↑ to speed up — it lifts off by itself when fast enough.`, 'info');
+      setTimeout(() => this.ui.notify('In the air: ← → turn, SPACE climb, SHIFT dive, S / ↓ slow down. Land gently on a road or the runway!', 'info'), 3500);
+    }
   }
   onPlayerExitedVehicle(_v: Vehicle) {}
 
@@ -783,6 +821,7 @@ export class Game {
       inVehicle: !!v,
       speed: v ? Math.round(v.speed * 3.6) : 0,
       nitro: v && v.spec.crazy ? Math.round(v.nitro * 50) / 50 : null,
+      altitude: v && v.spec.plane ? Math.round(v.altitude) : null,
       vehicleName: v ? v.spec.name : '',
       vehicleHealth: v ? v.healthPct : 1,
       fuel: v ? clamp(v.fuel / v.spec.fuelCap, 0, 1) : 1,

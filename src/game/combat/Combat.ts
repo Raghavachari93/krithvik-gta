@@ -17,6 +17,8 @@ interface Bullet {
   dmg: number;
   shooter: Actor | null;
   fromPlayer: boolean;
+  speed: number;
+  explosive: boolean;
 }
 
 const SPEED = 260;
@@ -30,7 +32,7 @@ export class CombatSystem {
   lastShotT = -99;
 
   constructor(private g: Game) {
-    for (let i = 0; i < 160; i++) this.bullets.push({ active: false, x: 0, y: 0, z: 0, dx: 0, dy: 0, dz: 0, dist: 0, max: 0, dmg: 0, shooter: null, fromPlayer: false });
+    for (let i = 0; i < 160; i++) this.bullets.push({ active: false, x: 0, y: 0, z: 0, dx: 0, dy: 0, dz: 0, dist: 0, max: 0, dmg: 0, shooter: null, fromPlayer: false, speed: SPEED, explosive: false });
   }
 
   // ---------------- melee ----------------
@@ -103,7 +105,7 @@ export class CombatSystem {
   }
 
   // ---------------- guns ----------------
-  playerFire(p: Actor, w: WeaponDef) {
+  playerFire(p: Actor, w: WeaponDef, keyboard = false) {
     const g = this.g;
     g.cam.aimRay(this.aim);
     // resolve aim point from camera ray
@@ -112,7 +114,7 @@ export class CombatSystem {
     if (hit) aimDist = hit.t;
     // aim assist: actor nearest to the crosshair ray
     let assist: Actor | null = null,
-      bestAng = g.player.aiming ? 0.05 : 0.09;
+      bestAng = g.player.aiming ? 0.05 : keyboard ? 0.45 : 0.09;
     for (const t of g.actors()) {
       if (t === p || !t.alive) continue;
       _t.set(t.pos.x - this.aim.o.x, t.pos.y + 1.2 - this.aim.o.y, t.pos.z - this.aim.o.z);
@@ -135,11 +137,11 @@ export class CombatSystem {
       _d.y += (Math.random() - 0.5) * spread * 2;
       _d.z += (Math.random() - 0.5) * spread * 2;
       _d.normalize();
-      this.spawnBullet(_o, _d, w.range, w.damage, p, true);
+      this.spawnBullet(_o, _d, w.range, w.damage, p, true, w.id === 'rocket');
     }
     g.fx.muzzle(_o);
     g.audio.gunshot(_o, w.id);
-    g.cam.shake(w.id === 'shotgun' ? 0.25 : 0.06);
+    g.cam.shake(w.id === 'rocket' ? 0.4 : w.id === 'shotgun' ? 0.25 : 0.06);
     g.progress.stat('shotsFired', 1);
     this.lastShotT = g.time;
     g.wanted.crime('shooting', p.pos.x, p.pos.z);
@@ -162,9 +164,11 @@ export class CombatSystem {
     g.audio.gunshot(_o, 'pistol');
   }
 
-  private spawnBullet(o: THREE.Vector3, d: THREE.Vector3, max: number, dmg: number, shooter: Actor | null, fromPlayer: boolean) {
+  private spawnBullet(o: THREE.Vector3, d: THREE.Vector3, max: number, dmg: number, shooter: Actor | null, fromPlayer: boolean, explosive = false) {
     const b = this.bullets.find((x) => !x.active);
     if (!b) return;
+    b.explosive = explosive;
+    b.speed = explosive ? 85 : SPEED;
     b.active = true;
     b.x = o.x;
     b.y = o.y;
@@ -183,7 +187,7 @@ export class CombatSystem {
     const g = this.g;
     for (const b of this.bullets) {
       if (!b.active) continue;
-      const step = Math.min(SPEED * dt, b.max - b.dist);
+      const step = Math.min(b.speed * dt, b.max - b.dist);
       // static world
       const hit = g.col.raycast(b.x, b.y, b.z, b.dx, b.dy, b.dz, step, true);
       let len = hit ? hit.t : step;
@@ -213,6 +217,21 @@ export class CombatSystem {
         ey = b.y + b.dy * len,
         ez = b.z + b.dz * len;
       g.fx.tracer(b.x, b.y, b.z, ex, ey, ez);
+      if (b.explosive) {
+        _t.set(ex, ey, ez);
+        g.fx.smoke(_t, 0.5, 0.8);
+        g.fx.fire(_t, 0.4);
+        if (hitActor || hitVeh || hit || b.dist + step >= b.max - 0.01) {
+          b.active = false;
+          this.explosion(_t.clone(), 8, 240, b.fromPlayer ? 'player' : null);
+        } else {
+          b.x = ex;
+          b.y = ey;
+          b.z = ez;
+          b.dist += step;
+        }
+        continue;
+      }
       if (hitActor) {
         _t.set(ex, ey, ez);
         g.fx.hitPuff(_t, true);
