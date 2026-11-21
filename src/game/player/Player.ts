@@ -569,6 +569,7 @@ export class Player implements Actor {
       vi.brake = inp.down('KeyS') || inp.down('ArrowDown') ? 1 : 0;
       vi.steer = (inp.down('KeyD') || inp.down('ArrowRight') ? 1 : 0) - (inp.down('KeyA') || inp.down('ArrowLeft') ? 1 : 0);
       vi.handbrake = inp.down('Space');
+      vi.boost = inp.down('ShiftLeft') || inp.down('ShiftRight');
       if (inp.hit('KeyH')) g.audio.horn(v.pos, true);
       if (inp.hit('KeyL') && v.spec.police) v.sirenOn = !v.sirenOn;
       if (inp.hit('KeyR')) g.audio.nextStation();

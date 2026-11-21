@@ -42,6 +42,7 @@ export interface Settings {
   showFps: boolean;
   weather: 'dynamic' | 'clear' | 'cloudy' | 'rain' | 'storm' | 'fog';
   timeSpeed: number;
+  timeOfDay: 'day' | 'cycle';
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -61,6 +62,7 @@ export const DEFAULT_SETTINGS: Settings = {
   showFps: false,
   weather: 'dynamic',
   timeSpeed: 1,
+  timeOfDay: 'day',
 };
 
 export interface Hud {
@@ -73,6 +75,7 @@ export interface Hud {
   searching: boolean;
   inVehicle: boolean;
   speed: number;
+  nitro: number | null;
   vehicleName: string;
   vehicleHealth: number;
   fuel: number;
@@ -172,6 +175,7 @@ const emptyHud: Hud = {
   searching: false,
   inVehicle: false,
   speed: 0,
+  nitro: null,
   vehicleName: '',
   vehicleHealth: 1,
   fuel: 1,

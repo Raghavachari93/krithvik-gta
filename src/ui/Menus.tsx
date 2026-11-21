@@ -198,6 +198,13 @@ export function SettingsScreen() {
                 <option value="fog">Fog</option>
               </select>
             </label>
+            <label className="setting">
+              <span>Time of day</span>
+              <select value={s.timeOfDay} onChange={(e) => upd({ timeOfDay: e.target.value as Settings['timeOfDay'] })}>
+                <option value="day">Always daylight</option>
+                <option value="cycle">Day / night cycle</option>
+              </select>
+            </label>
             {slider('Day length speed', 'timeSpeed', 0.25, 4, 0.25, (v) => `${v}×`)}
           </div>
         </div>

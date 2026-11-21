@@ -3,7 +3,18 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
-import { DISTRICT_NAMES, districtOf, locateBlock, inRect, AIRPORT, ISLAND, PORT, BEACH } from './constants';
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+
+/** Final colour grade: a little extra saturation and contrast so the city pops in daylight. */
+const GradeShader = {
+  uniforms: { tDiffuse: { value: null }, uSat: { value: 1.22 }, uContrast: { value: 1.08 } },
+  vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float uSat; uniform float uContrast; varying vec2 vUv;
+    void main(){ vec4 c = texture2D(tDiffuse, vUv); float l = dot(c.rgb, vec3(0.2126,0.7152,0.0722));
+      vec3 col = mix(vec3(l), c.rgb, uSat); col = (col - 0.5) * uContrast + 0.5; gl_FragColor = vec4(clamp(col,0.0,1.0), c.a); }`,
+};
+import { DISTRICT_NAMES, districtOf, locateBlock, inRect, AIRPORT, ISLAND, PORT, BEACH, ROAD_HALF, roadC } from './constants';
+import { CRAZY_IDS, VEHICLES } from './vehicles/VehicleSpecs';
 import { clamp, formatMoney } from './core/math';
 import { Input } from './core/Input';
 import { CollisionWorld } from './world/Collision';
@@ -103,8 +114,9 @@ export class Game {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 0.6;
+    // Neutral tone mapping keeps paint and neon colours saturated (ACES washes them out)
+    this.renderer.toneMapping = THREE.NeutralToneMapping;
+    this.renderer.toneMappingExposure = 0.92;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     container.appendChild(this.renderer.domElement);
     this.renderer.domElement.tabIndex = 0;
@@ -204,6 +216,7 @@ export class Game {
     this.env.drawDistance = s.drawDistance;
     this.env.forced = s.weather === 'dynamic' ? null : (s.weather as Weather);
     this.env.speed = (1 / 50) * s.timeSpeed;
+    this.env.lockDay = s.timeOfDay !== 'cycle';
     this.peds.density = s.pedDensity;
     this.traffic.density = s.trafficDensity;
     this.cam.sensitivity = s.mouseSens;
@@ -217,6 +230,7 @@ export class Game {
       this.bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth / 2, window.innerHeight / 2), 0.55, 0.5, 0.85);
       this.composer.addPass(this.bloom);
       this.composer.addPass(new OutputPass());
+      this.composer.addPass(new ShaderPass(GradeShader));
     } else if (!s.bloom && this.composer) {
       this.composer.dispose();
       this.composer = null;
@@ -287,7 +301,7 @@ export class Game {
     this.resetWorld();
     this.progress.load({} as ReturnType<Progression['serialize']>);
     this.progress.cash = 500;
-    this.progress.unlocked = new Set(['comet', 'cab', 'ranger', 'mule', 'viper', 'stallion', 'hauler', 'wave', 'marlin']);
+    this.progress.unlocked = new Set(['comet', 'cab', 'ranger', 'mule', 'viper', 'stallion', 'hauler', 'wave', 'marlin', ...CRAZY_IDS]);
     const def = characterById(charId);
     this.player.inv = newInventory();
     this.player.weapon = 'fists';
@@ -297,7 +311,8 @@ export class Game {
     this.player.medkits = 1;
     this.player.alive = true;
     this.lastSafehouse = 'sh_starter';
-    this.env.skipTo(17.2);
+    this.env.skipTo(12.5);
+    if (!this.env.forced) this.env.weather = 'clear';
     this.spawnAtSafehouse('sh_starter');
     this.afterLoad();
     this.ui.bigMessage('NEON BAY', `Welcome home, ${def.name.split(' ')[0]}.`, '#ff2d95');
@@ -312,6 +327,7 @@ export class Game {
     this.audio.init();
     this.resetWorld();
     this.progress.load(d.progress);
+    for (const id of CRAZY_IDS) this.progress.unlocked.add(id);
     const def = characterById(d.character);
     this.player.setCharacter(def, this.scene);
     this.player.inv = { ...newInventory(), ...d.player.inv };
@@ -348,6 +364,47 @@ export class Game {
     const p = this.layout.pois.find((x) => x.id === id) ?? this.layout.pois.find((x) => x.id === 'sh_starter')!;
     this.player.teleport(p.ex, p.ez + (p.yaw === 0 ? 1.5 : -1.5), this, p.yaw);
     this.cam.yaw = p.yaw;
+    this.spawnCrazyShowcase();
+  }
+
+  /** Line up the wild cars at the kerb of the nearest road so they are right there to try. */
+  spawnCrazyShowcase() {
+    for (const v of [...this.vehicles.list]) if (v.missionTag === 'showcase') this.vehicles.remove(v);
+    const px = this.player.pos.x,
+      pz = this.player.pos.z;
+    let bi = 0,
+      bj = 0;
+    for (let i = 0; i < 13; i++) {
+      if (Math.abs(roadC(i) - px) < Math.abs(roadC(bi) - px)) bi = i;
+      if (Math.abs(roadC(i) - pz) < Math.abs(roadC(bj) - pz)) bj = i;
+    }
+    const alongZ = Math.abs(roadC(bi) - px) <= Math.abs(roadC(bj) - pz);
+    const off = ROAD_HALF - 2.2;
+    const side = alongZ ? (px > roadC(bi) ? 1 : -1) : pz > roadC(bj) ? 1 : -1;
+    let cursor = (alongZ ? pz : px) - 26;
+    CRAZY_IDS.forEach((id) => {
+      const len = VEHICLES[id].len;
+      let u = cursor + len / 2;
+      // keep clear of junctions
+      const jc = roadC(Math.round(u / 100) + 6);
+      const clear = ROAD_HALF + 4 + len / 2;
+      if (Math.abs(u - jc) < clear) u = jc + clear;
+      cursor = u + len / 2 + 2.5;
+      let x: number, z: number, yaw: number;
+      if (alongZ) {
+        x = roadC(bi) + side * off;
+        z = u;
+        yaw = side > 0 ? 0 : Math.PI;
+      } else {
+        z = roadC(bj) + side * off;
+        x = u;
+        yaw = side > 0 ? -Math.PI / 2 : Math.PI / 2;
+      }
+      const v = this.vehicles.spawn(id, x, z, yaw);
+      v.persistent = true;
+      v.missionTag = 'showcase';
+      v.fuel = v.spec.fuelCap;
+    });
   }
 
   quitToMenu() {
@@ -494,6 +551,7 @@ export class Game {
   onPlayerEnteredVehicle(v: Vehicle) {
     this.missions.onEnterVehicle(v);
     if (v.spec.cls === 'taxi' && !this.missions.active) this.ui.notify('Bay Cab: press T to start a taxi shift.', 'info');
+    if (v.spec.crazy) this.ui.notify(`${v.spec.name}! Hold SHIFT for nitro.`, 'info');
   }
   onPlayerExitedVehicle(_v: Vehicle) {}
 
@@ -724,6 +782,7 @@ export class Game {
       searching: this.wanted.searching,
       inVehicle: !!v,
       speed: v ? Math.round(v.speed * 3.6) : 0,
+      nitro: v && v.spec.crazy ? Math.round(v.nitro * 50) / 50 : null,
       vehicleName: v ? v.spec.name : '',
       vehicleHealth: v ? v.healthPct : 1,
       fuel: v ? clamp(v.fuel / v.spec.fuelCap, 0, 1) : 1,
@@ -749,6 +808,11 @@ export class Game {
   }
 
   private render() {
+    if (this.bloom) {
+      const n = this.env.night;
+      this.bloom.strength = 0.2 + n * 0.4;
+      this.bloom.threshold = 1.3 - n * 0.45;
+    }
     if (this.composer && this.settings.bloom) this.composer.render();
     else this.renderer.render(this.scene, this.camera);
   }

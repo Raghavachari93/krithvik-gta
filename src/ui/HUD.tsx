@@ -54,6 +54,13 @@ function Speedo() {
           <span>⚙</span>
           <Bar v={h.vehicleHealth} max={1} cls={h.vehicleHealth < 0.3 ? 'vhp low' : 'vhp'} />
         </div>
+        {h.nitro !== null && (
+          <div className="mini-bars">
+            <span>🔥</span>
+            <Bar v={h.nitro} max={1} cls="nitro" />
+            <span className="nitro-key">SHIFT</span>
+          </div>
+        )}
         {h.radio && <div className="radio">♪ {h.radio}</div>}
       </div>
     </div>

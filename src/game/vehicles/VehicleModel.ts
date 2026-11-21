@@ -22,6 +22,10 @@ export interface VehicleRig {
   seat: THREE.Vector3;
   driverDummy: THREE.Group;
   glass?: THREE.Mesh;
+  /** crazy-car extras */
+  flames: THREE.Mesh[];
+  extras?: THREE.Group;
+  hoverPads?: THREE.MeshBasicMaterial;
 }
 
 function colorize(g: THREE.BufferGeometry, c: number) {
@@ -69,11 +73,176 @@ export const burntMaterial = new THREE.MeshStandardMaterial({ color: 0x1a1816, v
 const DARK = 0x16171a;
 const CHROME = 0x9aa0a8;
 
-function wheelGeo(r: number, w: number) {
-  const tire = colorize(new THREE.CylinderGeometry(r, r, w, 16).rotateZ(Math.PI / 2), 0x151515);
+function wheelGeo(r: number, w: number, knobby = false) {
+  const tire = colorize(new THREE.CylinderGeometry(r, r, w, 18).rotateZ(Math.PI / 2), 0x151515);
   const rim = colorize(new THREE.CylinderGeometry(r * 0.62, r * 0.62, w + 0.02, 10).rotateZ(Math.PI / 2), CHROME);
   const spokes = colorize(new THREE.BoxGeometry(w + 0.04, r * 1.1, 0.06), 0x55595e);
-  return mergeGeometries([tire, rim, spokes])!;
+  const parts = [tire, rim, spokes];
+  if (knobby) {
+    // chunky off-road tread blocks
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * Math.PI * 2;
+      parts.push(colorize(new THREE.BoxGeometry(w * 0.9, 0.12, 0.2).translate(0, r + 0.02, 0).rotateX(a), 0x1c1c1c));
+    }
+  }
+  return mergeGeometries(parts)!;
+}
+
+let glowTex: THREE.Texture | null = null;
+function glowTexture() {
+  if (glowTex) return glowTex;
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const ctx = c.getContext('2d')!;
+  const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.55, 'rgba(255,255,255,0.45)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 64, 64);
+  glowTex = new THREE.CanvasTexture(c);
+  return glowTex;
+}
+
+const flameOuter = new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 0.9, 0.15), transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+const flameInner = new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 2.6, 1.6), transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+/** Flame pointing backwards (-Z) with its base at the origin; scale.z stretches it. */
+function makeFlame(r: number, len: number) {
+  const outer = new THREE.Mesh(new THREE.ConeGeometry(r, len, 10, 1, true).translate(0, -len / 2, 0).rotateX(Math.PI / 2), flameOuter);
+  const inner = new THREE.Mesh(new THREE.ConeGeometry(r * 0.5, len * 0.6, 8, 1, true).translate(0, -len * 0.3, 0).rotateX(Math.PI / 2), flameInner);
+  outer.add(inner);
+  outer.visible = false;
+  return outer;
+}
+
+const chromeMat = new THREE.MeshStandardMaterial({ color: 0xd8dde4, roughness: 0.15, metalness: 1 });
+const darkMat = new THREE.MeshStandardMaterial({ color: 0x1a1b1e, roughness: 0.6, metalness: 0.4 });
+
+/** Bodywork and toys for the crazy cars. */
+function buildCrazyExtras(spec: VehicleSpec, rig: { body: THREE.Group; group: THREE.Group; wheels: WheelRig[]; paint: THREE.Material }) {
+  const sh = spec.shape;
+  const L = spec.len,
+    W = spec.wid,
+    h = L / 2;
+  const ex = new THREE.Group();
+  rig.body.add(ex);
+  const flames: THREE.Mesh[] = [];
+  let hoverPads: THREE.MeshBasicMaterial | undefined;
+  const box = (w: number, hh: number, d: number, x: number, y: number, z: number, m: THREE.Material) => {
+    const b = new THREE.Mesh(new THREE.BoxGeometry(w, hh, d), m);
+    b.position.set(x, y, z);
+    b.castShadow = true;
+    ex.add(b);
+    return b;
+  };
+  const cyl = (r: number, len: number, x: number, y: number, z: number, m: THREE.Material, rotX = 0, rotZ = 0) => {
+    const c = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 12), m);
+    c.position.set(x, y, z);
+    c.rotation.set(rotX, 0, rotZ);
+    ex.add(c);
+    return c;
+  };
+  // underglow: a glowing decal on the ground under the car
+  if (spec.underglow) {
+    const glow = new THREE.Mesh(
+      new THREE.PlaneGeometry(W * 1.5, L * 1.15).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color(spec.underglow).multiplyScalar(2.2), map: glowTexture(), transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }),
+    );
+    glow.position.y = 0.06;
+    glow.renderOrder = 2;
+    rig.group.add(glow);
+  }
+  const lamp = new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 2.6, 1.2), toneMapped: false });
+  switch (spec.crazy) {
+    case 'monster': {
+      // frame, suspension, light bar, exhaust stacks
+      box(W * 0.45, 0.35, L * 0.85, 0, sh.wheelR, 0, darkMat);
+      box(sh.track * 2 + 0.2, 0.18, 0.25, 0, sh.wheelR, sh.wheelX, darkMat);
+      box(sh.track * 2 + 0.2, 0.18, 0.25, 0, sh.wheelR, -sh.wheelX, darkMat);
+      for (const sx of [1, -1])
+        for (const sz of [1, -1]) cyl(0.09, 1.0, sx * sh.track * 0.62, (sh.wheelR + sh.gc) / 2 + 0.15, sz * sh.wheelX, chromeMat, 0, sx * 0.55).castShadow = true;
+      box(W * 0.9, 0.08, 0.08, 0, sh.roofH + 0.1, sh.roofFront - 0.05, darkMat);
+      for (let i = 0; i < 5; i++) box(0.22, 0.14, 0.12, (i - 2) * 0.34, sh.roofH + 0.2, sh.roofFront - 0.05, lamp);
+      for (const sx of [1, -1]) {
+        cyl(0.08, 1.4, sx * (W / 2 - 0.25), sh.roofH + 0.1, sh.cabRear - 0.25, chromeMat);
+        const f = makeFlame(0.12, 1.2);
+        f.rotation.x = -Math.PI / 2; // shoots straight up
+        f.position.set(sx * (W / 2 - 0.25), sh.roofH + 0.8, sh.cabRear - 0.25);
+        ex.add(f);
+        flames.push(f);
+      }
+      break;
+    }
+    case 'rocket': {
+      cyl(0.42, 1.0, 0, sh.tail - 0.1, -h - 0.25, darkMat, Math.PI / 2);
+      cyl(0.32, 0.25, 0, sh.tail - 0.1, -h - 0.8, chromeMat, Math.PI / 2);
+      box(W * 1.15, 0.06, 0.55, 0, 0.32, h + 0.05, darkMat); // front wing
+      for (const sx of [1, -1]) {
+        box(0.06, 0.32, 0.6, sx * W * 0.57, 0.45, h + 0.05, darkMat);
+        box(0.07, 0.9, 0.9, sx * 0.55, sh.tail + 0.45, -h + 0.45, rig.paint); // tail fins
+      }
+      box(1.3, 0.06, 0.55, 0, sh.tail + 0.92, -h + 0.45, darkMat);
+      const f = makeFlame(0.34, 2.6);
+      f.position.set(0, sh.tail - 0.1, -h - 0.92);
+      ex.add(f);
+      flames.push(f);
+      break;
+    }
+    case 'hover': {
+      hoverPads = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.3, 2.4, 3), toneMapped: false });
+      for (const w of rig.wheels) w.pivot.visible = false;
+      for (const sx of [1, -1])
+        for (const sz of [1, -1]) {
+          cyl(0.38, 0.16, sx * (W / 2 - 0.35), sh.gc - 0.02, sz * (h - 0.9), darkMat);
+          const disc = new THREE.Mesh(new THREE.CircleGeometry(0.3, 16).rotateX(Math.PI / 2), hoverPads);
+          disc.position.set(sx * (W / 2 - 0.35), sh.gc - 0.11, sz * (h - 0.9));
+          ex.add(disc);
+        }
+      box(0.06, 0.55, 0.8, 0, sh.tail + 0.3, -h + 0.4, rig.paint);
+      const f = makeFlame(0.2, 1.5);
+      f.position.set(0, sh.tail - 0.2, -h - 0.05);
+      ex.add(f);
+      flames.push(f);
+      break;
+    }
+    case 'limo': {
+      // rooftop hot tub
+      const zc = (sh.roofFront + sh.roofRear) / 2 - 0.4;
+      box(W * 0.8, 0.3, 2.4, 0, sh.roofH + 0.18, zc, chromeMat);
+      const water = new THREE.Mesh(new THREE.BoxGeometry(W * 0.72, 0.05, 2.25), new THREE.MeshStandardMaterial({ color: 0x29c6ff, emissive: 0x0a5a80, roughness: 0.05, metalness: 0.2 }));
+      water.position.set(0, sh.roofH + 0.34, zc);
+      ex.add(water);
+      // extra middle axle
+      for (const x of [sh.track, -sh.track]) {
+        const m = new THREE.Mesh(rig.wheels[0].mesh.geometry, rig.wheels[0].mesh.material);
+        m.position.set(x, sh.wheelR, 0);
+        rig.group.add(m);
+      }
+      // chrome bull horns on the bonnet
+      for (const sx of [1, -1]) cyl(0.04, 0.9, sx * 0.4, sh.nose + 0.22, h - 0.3, chromeMat, 0, sx * 1.2);
+      break;
+    }
+    case 'rod': {
+      // supercharger blower poking through the bonnet
+      box(0.6, 0.35, 0.8, 0, sh.belt + 0.12, h - 1.0, chromeMat);
+      box(0.5, 0.3, 0.45, 0, sh.belt + 0.45, h - 0.95, darkMat);
+      for (const sx of [1, -1]) {
+        cyl(0.07, 2.2, sx * (W / 2 + 0.06), sh.gc + 0.3, 0.1, chromeMat, Math.PI / 2);
+        const f = makeFlame(0.11, 1.1);
+        f.position.set(sx * (W / 2 + 0.06), sh.gc + 0.3, -1.0);
+        ex.add(f);
+        flames.push(f);
+      }
+      // big raked rear wheels
+      for (const w of rig.wheels)
+        if (!w.front) {
+          w.mesh.scale.setScalar(1.28);
+          w.pivot.position.y = sh.wheelR * 1.28;
+        }
+      break;
+    }
+  }
+  return { extras: ex, flames, hoverPads };
 }
 
 function buildCar(spec: VehicleSpec) {
@@ -167,7 +336,8 @@ function buildCar(spec: VehicleSpec) {
   const head = mergeGeometries([new THREE.BoxGeometry(0.42, 0.12, 0.06).translate(lx, headY, h + 0.01), new THREE.BoxGeometry(0.42, 0.12, 0.06).translate(-lx, headY, h + 0.01)])!;
   const tailY = spec.cls === 'truck' ? 0.9 : sh.tail - 0.15;
   const tail = mergeGeometries([new THREE.BoxGeometry(0.42, 0.12, 0.06).translate(lx, tailY, -h - 0.01), new THREE.BoxGeometry(0.42, 0.12, 0.06).translate(-lx, tailY, -h - 0.01)])!;
-  return { body, glass, head, tail, wheel: wheelGeo(sh.wheelR, spec.cls === 'truck' ? 0.38 : 0.26) };
+  const ww = spec.crazy === 'monster' ? 0.78 : spec.crazy === 'rocket' ? 0.42 : spec.crazy === 'rod' ? 0.36 : spec.cls === 'truck' ? 0.38 : 0.26;
+  return { body, glass, head, tail, wheel: wheelGeo(sh.wheelR, ww, spec.crazy === 'monster') };
 }
 
 function buildBike(spec: VehicleSpec) {
@@ -324,5 +494,8 @@ export function buildVehicleRig(spec: VehicleSpec, color: number): VehicleRig {
   driverDummy.position.copy(seat);
   driverDummy.visible = false;
   body.add(driverDummy);
-  return { group, body, wheels, tailMat, headMat, sirenR, sirenB, paint, seat, driverDummy, glass: glassMesh };
+  let flames: THREE.Mesh[] = [];
+  let extras: THREE.Group | undefined, hoverPads: THREE.MeshBasicMaterial | undefined;
+  if (spec.crazy) ({ extras, flames, hoverPads } = buildCrazyExtras(spec, { body, group, wheels, paint }));
+  return { group, body, wheels, tailMat, headMat, sirenR, sirenB, paint, seat, driverDummy, glass: glassMesh, flames, extras, hoverPads };
 }

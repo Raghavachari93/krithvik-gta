@@ -22,7 +22,7 @@ const BLIP: Record<string, { glyph: string; color: string; kind: 'safehouse' | '
 
 const DEALER_STOCK: Record<string, string[]> = {
   dealer_bayside: ['comet', 'ranger', 'mule', 'viper', 'stallion', 'hauler', 'cab'],
-  dealer_apex: ['vortex', 'zenith', 'stallion', 'viper'],
+  dealer_apex: ['vortex', 'zenith', 'stallion', 'viper', 'behemoth', 'inferno', 'phantom', 'royale', 'hellrod'],
 };
 
 /** Shops, properties and city services attached to points of interest. */

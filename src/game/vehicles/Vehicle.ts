@@ -11,6 +11,7 @@ export interface VehicleInput {
   brake: number;
   steer: number;
   handbrake: boolean;
+  boost?: boolean;
 }
 
 let NEXT_ID = 1;
@@ -59,6 +60,10 @@ export class Vehicle {
   color: number;
   bornAt = 0;
   private ahead = new THREE.Vector3();
+  /** nitro tank 0..1 (crazy cars) */
+  nitro = 1;
+  boosting = false;
+  private fxT = Math.random() * 10;
 
   constructor(public spec: VehicleSpec, color?: number) {
     this.color = color ?? spec.colors[Math.floor(Math.random() * spec.colors.length)];
@@ -114,6 +119,8 @@ export class Vehicle {
     });
     this.rig.headMat.color.setRGB(0.05, 0.05, 0.05);
     this.rig.tailMat.color.setRGB(0.05, 0, 0);
+    if (this.rig.extras) this.rig.extras.visible = false;
+    for (const f of this.rig.flames) f.visible = false;
     this.vel.y = 6;
     this.grounded = false;
     this.angVel += (Math.random() - 0.5) * 3;
@@ -186,6 +193,11 @@ export class Vehicle {
         if (vF < -0.5) a += sp.brake * thr;
         else a += sp.accel * thr * Math.max(0, 1 - (vF / sp.maxSpeed) ** 2) * (this.healthPct < 0.15 ? 0.5 : 1);
       }
+      this.boosting = !!(sp.crazy && inp.boost && thr > 0 && this.nitro > 0.02 && vF > -1);
+      if (this.boosting) {
+        a += sp.accel * 1.1 * Math.max(0, 1 - (vF / (sp.maxSpeed * 1.35)) ** 2);
+        this.nitro = Math.max(0, this.nitro - h * 0.2);
+      } else if (sp.crazy) this.nitro = Math.min(1, this.nitro + h * 0.07);
       if (inp.brake > 0) {
         if (vF > 0.5) a -= sp.brake * inp.brake;
         else if (engine && vF > -sp.reverse) a -= sp.accel * 0.7 * inp.brake;
@@ -431,6 +443,20 @@ export class Vehicle {
       else this.roll = damp(this.roll, clamp(this.angVel * this.forwardSpeed * 0.0045, -0.07, 0.07), 6, dt);
     }
     this.rig.body.rotation.set(this.pitch, 0, this.roll);
+    if (sp.crazy && !this.destroyed) {
+      this.fxT += dt;
+      const thr = this.driver ? this.input.throttle : 0;
+      for (const f of this.rig.flames) {
+        const k = this.boosting ? 1.4 + Math.random() * 0.5 : sp.crazy === 'rocket' && thr > 0 ? 0.35 + Math.random() * 0.2 : 0;
+        f.visible = k > 0;
+        if (k > 0) f.scale.set(0.8 + k * 0.25, 0.8 + k * 0.25, k);
+      }
+      if (sp.crazy === 'hover') {
+        this.rig.body.position.y = 0.08 + Math.sin(this.fxT * 2.4) * 0.06;
+        const pulse = 1.6 + Math.sin(this.fxT * 9) * 0.5 + (this.boosting ? 1.5 : 0);
+        this.rig.hoverPads?.color.setRGB(0.2 * pulse, 1.4 * pulse, 1.9 * pulse);
+      }
+    }
     const wr = sp.shape.wheelR;
     for (const w of this.rig.wheels) {
       w.mesh.rotation.x += (this.forwardSpeed * dt) / wr;

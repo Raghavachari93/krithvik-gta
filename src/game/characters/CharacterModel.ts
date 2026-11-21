@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { clamp, damp } from '../core/math';
 
 export interface CharacterLook {
@@ -68,6 +69,33 @@ function mat(c: number, rough = 0.8) {
   return m;
 }
 
+function tint(geo: THREE.BufferGeometry, c: number) {
+  const g = geo.index ? geo.toNonIndexed() : geo;
+  const col = new THREE.Color(c);
+  const n = g.attributes.position.count;
+  const arr = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) arr.set([col.r, col.g, col.b], i * 3);
+  g.setAttribute('color', new THREE.BufferAttribute(arr, 3));
+  if (g.attributes.uv) g.deleteAttribute('uv');
+  return g;
+}
+
+/** Eyes, pupils, brows and mouth merged into one vertex-coloured mesh. */
+function faceGeo() {
+  const parts: THREE.BufferGeometry[] = [];
+  for (const sx of [1, -1]) {
+    const x = 0.041 * sx;
+    parts.push(tint(new THREE.SphereGeometry(0.021, 10, 8).scale(1.15, 0.85, 0.6).translate(x, 0.158, 0.108), 0xf6f6f2)); // white
+    parts.push(tint(new THREE.SphereGeometry(0.0115, 8, 6).scale(1, 1, 0.5).translate(x, 0.157, 0.1205), 0x2b1a0c)); // iris
+    parts.push(tint(new THREE.SphereGeometry(0.004, 6, 4).translate(x + 0.004, 0.161, 0.1255), 0xffffff)); // catchlight
+    parts.push(tint(new THREE.BoxGeometry(0.048, 0.011, 0.014).rotateZ(-0.12 * sx).translate(x, 0.188, 0.11), 0x1c130c)); // brow
+  }
+  parts.push(tint(new THREE.BoxGeometry(0.046, 0.011, 0.012).translate(0, 0.094, 0.115), 0x8e3b35)); // mouth
+  parts.push(tint(new THREE.BoxGeometry(0.03, 0.006, 0.01).translate(0, 0.087, 0.113), 0xb0645a)); // lower lip
+  return mergeGeometries(parts)!;
+}
+const faceMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45 });
+
 let G: Record<string, THREE.BufferGeometry> | null = null;
 function geos() {
   if (G) return G;
@@ -75,9 +103,22 @@ function geos() {
     pelvis: new THREE.BoxGeometry(0.34, 0.18, 0.21).translate(0, 0.02, 0),
     chest: new THREE.CapsuleGeometry(0.17, 0.3, 4, 10).scale(1.15, 1, 0.7).translate(0, 0.32, 0),
     head: new THREE.SphereGeometry(0.115, 14, 10).scale(0.92, 1.08, 1).translate(0, 0.14, 0.01),
+    face: faceGeo(),
+    faceSkin: mergeGeometries([
+      new THREE.BoxGeometry(0.024, 0.045, 0.034).rotateX(-0.2).translate(0, 0.132, 0.122), // nose
+      new THREE.SphereGeometry(0.026, 8, 6).scale(0.45, 1, 0.8).translate(0.104, 0.142, 0.0), // ears
+      new THREE.SphereGeometry(0.026, 8, 6).scale(0.45, 1, 0.8).translate(-0.104, 0.142, 0.0),
+    ].map((g) => (g.index ? g.toNonIndexed() : g)).map((g) => (g.deleteAttribute('uv'), g)))!,
     neck: new THREE.CylinderGeometry(0.05, 0.06, 0.12, 8).translate(0, 0.02, 0),
-    hairShort: new THREE.SphereGeometry(0.122, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.55).translate(0, 0.16, -0.005),
-    hairLong: new THREE.SphereGeometry(0.128, 12, 10, 0, Math.PI * 2, 0, Math.PI * 0.75).scale(1, 1.15, 1).translate(0, 0.13, -0.02),
+    // hair: a crown cap plus a back/side piece that leaves the face open
+    hairShort: mergeGeometries([
+      new THREE.SphereGeometry(0.122, 14, 6, 0, Math.PI * 2, 0, Math.PI * 0.3),
+      new THREE.SphereGeometry(0.122, 14, 8, Math.PI / 2 + 1.0, Math.PI * 2 - 2.0, 0, Math.PI * 0.55),
+    ])!.translate(0, 0.16, -0.005),
+    hairLong: mergeGeometries([
+      new THREE.SphereGeometry(0.128, 14, 6, 0, Math.PI * 2, 0, Math.PI * 0.3),
+      new THREE.SphereGeometry(0.128, 14, 10, Math.PI / 2 + 0.85, Math.PI * 2 - 1.7, 0, Math.PI * 0.78),
+    ])!.scale(1, 1.15, 1).translate(0, 0.13, -0.02),
     cap: new THREE.CylinderGeometry(0.125, 0.125, 0.08, 12).translate(0, 0.22, 0),
     brim: new THREE.BoxGeometry(0.2, 0.02, 0.12).translate(0, 0.19, 0.12),
     upperArm: new THREE.CapsuleGeometry(0.055, 0.2, 4, 8).translate(0, -0.14, 0),
@@ -148,6 +189,9 @@ export class CharacterModel {
     this.head.position.y = 0.6;
     add(this.head, g.neck, skin);
     this.headMeshes.push(add(this.head, g.head, skin));
+    const face = new THREE.Mesh(g.face, faceMat);
+    this.head.add(face);
+    this.headMeshes.push(face, add(this.head, g.faceSkin, skin));
     if (look.hairStyle === 0) this.headMeshes.push(add(this.head, g.hairShort, hair));
     if (look.hairStyle === 1) this.headMeshes.push(add(this.head, g.hairLong, hair));
     if (look.hairStyle === 3) {

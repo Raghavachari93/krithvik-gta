@@ -23,7 +23,9 @@ export const WEATHER_LABEL: Record<Weather, string> = {
 
 /** Day/night cycle, sky, sun/moon lighting, weather, rain and fog. */
 export class Environment {
-  hours = 17.2;
+  hours = 12.5;
+  /** hold the sun at midday */
+  lockDay = true;
   /** in-game hours per real second */
   speed = 1 / 50;
   weather: Weather = 'clear';
@@ -170,7 +172,8 @@ export class Environment {
 
   update(dt: number, focus: THREE.Vector3, camera: THREE.Camera) {
     const dh = dt * this.speed;
-    this.hours = (this.hours + dh) % 24;
+    if (this.lockDay) this.hours = 12.5;
+    else this.hours = (this.hours + dh) % 24;
     this.elapsedHours += dh;
     worldUniforms.uTime.value += dt;
 
@@ -179,7 +182,7 @@ export class Environment {
     else if (this.elapsedHours > this.nextWeatherAt) {
       this.nextWeatherAt = this.elapsedHours + 3 + Math.random() * 5;
       const r = Math.random();
-      this.weather = r < 0.45 ? 'clear' : r < 0.63 ? 'cloudy' : r < 0.8 ? 'rain' : r < 0.88 ? 'storm' : 'fog';
+      this.weather = r < 0.7 ? 'clear' : r < 0.85 ? 'cloudy' : r < 0.95 ? 'rain' : r < 0.98 ? 'storm' : 'fog';
     }
     const target = WEATHER_PARAMS[this.weather];
     const k = 1 - Math.exp(-dt / 12);
@@ -201,7 +204,7 @@ export class Environment {
     const elevClamp = Math.max(this.sunElev, -0.3);
     const sunPos = new THREE.Vector3(this.sunDir.x, elevClamp, this.sunDir.z).normalize();
     u.sunPosition.value.copy(sunPos);
-    u.turbidity.value = 2.5 + this.cloud * 12;
+    u.turbidity.value = 1.8 + this.cloud * 12;
     u.rayleigh.value = lerp(1.2, 3.2, smoothstep(0.35, 0.0, this.sunElev)) * (1 - this.cloud * 0.5);
     u.mieCoefficient.value = 0.004 + this.cloud * 0.02;
     u.mieDirectionalG.value = 0.82;
@@ -218,7 +221,7 @@ export class Environment {
     const lightDir = this.sunElev > -0.05 ? this.sunDir : new THREE.Vector3(-this.sunDir.x, -this.sunDir.y, -0.3).normalize();
     if (this.sunElev > -0.05) {
       this.sun.color.copy(sunCol);
-      this.sun.intensity = 3.0 * smoothstep(-0.05, 0.12, this.sunElev) * (1 - this.cloud * 0.65);
+      this.sun.intensity = 3.4 * smoothstep(-0.05, 0.12, this.sunElev) * (1 - this.cloud * 0.65);
     } else {
       this.sun.color.setRGB(0.55, 0.65, 1.0);
       this.sun.intensity = 0.35 * (1 - this.cloud * 0.6);
@@ -232,7 +235,7 @@ export class Environment {
     this.lightning = Math.max(0, this.lightning - dt * 3.5);
     const flash = this.lightning > 0.5 || (this.lightning > 0.2 && this.lightning < 0.3) ? this.lightning * 3 : 0;
 
-    this.hemi.intensity = lerp(0.32, 0.85, day) * (1 - this.cloud * 0.25) + flash;
+    this.hemi.intensity = lerp(0.32, 1.0, day) * (1 - this.cloud * 0.25) + flash;
     this.hemi.color.setRGB(lerp(0.32, 0.75, day), lerp(0.38, 0.85, day), lerp(0.7, 1.0, day));
     this.hemi.groundColor.setRGB(lerp(0.12, 0.4, day), lerp(0.1, 0.34, day), lerp(0.16, 0.28, day));
 
@@ -242,15 +245,15 @@ export class Environment {
     this.sun.target.updateMatrixWorld();
 
     // fog
-    const horizonDay = new THREE.Color(0xb8cde0).lerp(new THREE.Color(0xf0a070), low * day);
+    const horizonDay = new THREE.Color(0xc4dcf2).lerp(new THREE.Color(0xf0a070), low * day);
     const horizonNight = new THREE.Color(0x0b1024);
     const fogCol = horizonNight.clone().lerp(horizonDay, day).lerp(new THREE.Color(0x8a9298).multiplyScalar(lerp(0.25, 1, day)), this.cloud * 0.6);
     this.fog.color.copy(fogCol);
     const far = this.drawDistance;
     this.fog.far = lerp(far, 180, this.fogAmt);
-    this.fog.near = lerp(Math.min(250, far * 0.2), 5, this.fogAmt);
-    this.renderer.toneMappingExposure = lerp(0.95, 0.55, day) + flash * 0.3;
-    (this.scene as THREE.Scene).environmentIntensity = lerp(0.18, 0.9, day);
+    this.fog.near = lerp(Math.min(lerp(250, 550, day), far * 0.4), 5, this.fogAmt);
+    this.renderer.toneMappingExposure = lerp(0.95, 0.8, day) + flash * 0.3;
+    (this.scene as THREE.Scene).environmentIntensity = lerp(0.18, 1.0, day);
 
     // stars & clouds
     (this.stars.material as THREE.PointsMaterial).opacity = smoothstep(0.5, 0.95, this.night) * (1 - this.cloud);
