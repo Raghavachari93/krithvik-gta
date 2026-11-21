@@ -9,6 +9,7 @@ export class Input {
   wheel = 0;
   locked = false;
   onLockChange: ((locked: boolean) => void) | null = null;
+  private lastTouch = -1e9;
 
   constructor(private el: HTMLElement) {
     window.addEventListener('keydown', (e) => {
@@ -24,7 +25,10 @@ export class Input {
       this.keys.clear();
       this.buttons.clear();
     });
+    // phones fire a fake mousedown after each tap: ignore it so looking around doesn't shoot
+    window.addEventListener('touchstart', () => (this.lastTouch = performance.now()), { passive: true });
     el.addEventListener('mousedown', (e) => {
+      if (performance.now() - this.lastTouch < 1000) return;
       this.buttons.add(e.button);
       this.clicked.add(e.button);
     });

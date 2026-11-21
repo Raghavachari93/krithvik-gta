@@ -4,6 +4,10 @@ import { HUD } from './HUD';
 import { MapScreen } from './MapScreen';
 import { CharSelect, ControlsScreen, Death, Inventory, Loading, MainMenu, MissionIntro, MissionResult, PauseMenu, SettingsScreen, Shop, StatsScreen } from './Menus';
 import { useUI } from './store';
+import { RotateHint, TouchControls, isTouchDevice } from './TouchControls';
+
+const TOUCH = isTouchDevice();
+if (TOUCH) document.body.classList.add('touch');
 
 export function App() {
   const screen = useUI((s) => s.screen);
@@ -43,6 +47,8 @@ export function App() {
   return (
     <>
       {inGame && <HUD />}
+      {TOUCH && inGame && <TouchControls />}
+      {TOUCH && <RotateHint />}
       {screen === 'loading' && <Loading />}
       {screen === 'menu' && <MainMenu />}
       {screen === 'charselect' && <CharSelect />}

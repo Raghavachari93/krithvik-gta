@@ -216,6 +216,9 @@ function loadSettings(): Settings {
   } catch {
     /* ignore */
   }
+  // phones & tablets: lighter graphics so it runs smoothly
+  const touch = typeof window !== 'undefined' && (window.matchMedia?.('(pointer: coarse)').matches || navigator.maxTouchPoints > 0);
+  if (touch) return { ...DEFAULT_SETTINGS, quality: 'low', shadows: false, bloom: false, drawDistance: 800, pedDensity: 0.6, trafficDensity: 0.6 };
   return { ...DEFAULT_SETTINGS };
 }
 
