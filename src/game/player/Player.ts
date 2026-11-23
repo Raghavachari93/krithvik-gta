@@ -162,6 +162,7 @@ export class Player implements Actor {
     v.rig.body.add(this.model.root);
     this.model.root.position.copy(v.rig.seat);
     this.model.root.rotation.set(0, 0, 0);
+    this.model.fitToCabin(v.spec.bike || v.spec.boat || v.spec.plane || v.spec.cls === 'truck' ? 99 : v.spec.shape.roofH - v.rig.seat.y);
     this.model.setWeapon('none');
     v.persistent = true;
     g.audio.door(v.pos);

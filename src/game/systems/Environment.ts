@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { setVehicleEnv } from '../vehicles/VehicleModel';
 import { Sky } from 'three/examples/jsm/objects/Sky.js';
 import { clamp, lerp, smoothstep } from '../core/math';
 import { worldUniforms } from '../world/Materials';
@@ -43,6 +44,8 @@ export class Environment {
   sun: THREE.DirectionalLight;
   hemi: THREE.HemisphereLight;
   private envScene = new THREE.Scene();
+  private envGround: THREE.Mesh;
+  private envCity: THREE.MeshBasicMaterial;
   private envSky: Sky;
   private pmrem: THREE.PMREMGenerator;
   private envRT: THREE.WebGLRenderTarget | null = null;
@@ -65,6 +68,19 @@ export class Environment {
     this.envSky = new Sky();
     this.envSky.scale.setScalar(1000);
     this.envScene.add(this.envSky);
+    // reflection probe: a ground plane and a ring of city blocks so glossy paint shows a horizon line
+    this.envGround = new THREE.Mesh(new THREE.CircleGeometry(900, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x404040 }));
+    this.envGround.position.y = -2;
+    this.envScene.add(this.envGround);
+    this.envCity = new THREE.MeshBasicMaterial({ color: 0x707070 });
+    for (let i = 0; i < 44; i++) {
+      const a = (i / 44) * Math.PI * 2 + Math.sin(i * 7.3) * 0.05;
+      const hgt = 40 + ((i * 53) % 7) * 22 + (i % 5 === 0 ? 120 : 0);
+      const b = new THREE.Mesh(new THREE.BoxGeometry(70 + (i % 3) * 25, hgt, 40), this.envCity);
+      b.position.set(Math.cos(a) * 420, hgt / 2 - 2, Math.sin(a) * 420);
+      b.lookAt(0, hgt / 2 - 2, 0);
+      this.envScene.add(b);
+    }
     this.pmrem = new THREE.PMREMGenerator(renderer);
 
     this.sun = new THREE.DirectionalLight(0xffffff, 2.5);
@@ -304,8 +320,12 @@ export class Environment {
     this.envTimer += dt;
     if (this.envTimer > 4) {
       this.envTimer = 0;
+      const dayK = 1 - this.night;
+      (this.envGround.material as THREE.MeshBasicMaterial).color.setRGB(0.02 + 0.2 * dayK, 0.02 + 0.2 * dayK, 0.025 + 0.2 * dayK);
+      this.envCity.color.setRGB(0.03 + 0.42 * dayK, 0.03 + 0.42 * dayK, 0.04 + 0.45 * dayK);
       const rt = this.pmrem.fromScene(this.envScene, 0, 0.1, 2000);
       this.scene.environment = rt.texture;
+      setVehicleEnv(rt.texture, 0.3 + 0.7 * dayK);
       this.envRT?.dispose();
       this.envRT = rt;
     }
