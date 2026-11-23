@@ -6,6 +6,7 @@ import { formatMoney, formatTime } from '../game/core/math';
 import { ACHIEVEMENTS, PROPERTIES } from '../game/systems/Progression';
 import { VEHICLES } from '../game/vehicles/VehicleSpecs';
 import { MISSIONS } from '../game/missions/Missions';
+import { TOUCH, goFullscreen, tt } from './device';
 import { DEFAULT_SETTINGS, Settings, useUI } from './store';
 
 const hex = (n: number) => '#' + n.toString(16).padStart(6, '0');
@@ -34,7 +35,7 @@ export function MainMenu() {
         <div className="tagline">Drive, fly and rule the streets of Neon Bay</div>
         <div className="menu-buttons">
           {hasSave && (
-            <button className="btn primary" onClick={() => G().continueGame()}>
+            <button className="btn primary" onClick={() => (goFullscreen(), G().continueGame())}>
               Continue
             </button>
           )}
@@ -48,7 +49,11 @@ export function MainMenu() {
             Controls
           </button>
         </div>
-        <div className="menu-foot">Arrow keys or WASD to move • F / Enter to get in cars & planes • K or Z (or left click) to shoot • G switches guns • TAB pauses</div>
+        <div className="menu-foot">
+          {TOUCH
+            ? 'Left stick to move • drag the right side to look • CAR to get in vehicles • FIRE to shoot'
+            : 'Arrow keys or WASD to move • F / Enter to get in cars & planes • K or Z (or left click) to shoot • G switches guns • TAB pauses'}
+        </div>
       </div>
     </div>
   );
@@ -124,7 +129,7 @@ export function CharSelect() {
         <button className="btn" onClick={() => set({ screen: 'menu' })}>
           Back
         </button>
-        <button className="btn primary" onClick={() => G().startNewGame(c.id)}>
+        <button className="btn primary" onClick={() => (goFullscreen(), G().startNewGame(c.id))}>
           Play as {c.name.split(' ')[0]}
         </button>
       </div>
@@ -235,6 +240,22 @@ export function SettingsScreen() {
   );
 }
 
+const TOUCH_CONTROLS: [string, string][] = [
+  ['Left stick', 'Walk / drive / steer — push all the way up to sprint'],
+  ['Drag right side', 'Look around and aim'],
+  ['FIRE', 'Shoot / swing (hold for automatic guns)'],
+  ['GUN', 'Next gun'],
+  ['JUMP', 'Jump & climb'],
+  ['ROLL / RELOAD', 'Dodge roll / reload'],
+  ['MED', 'Use a med kit (shows when you are hurt)'],
+  ['CAR / EXIT', 'Get in / out of cars, boats and planes'],
+  ['USE (or tap the prompt)', 'Interact, talk, shop, start missions'],
+  ['NITRO / DRIFT', 'Boost / handbrake while driving'],
+  ['▲ UP / ▼ DOWN', 'Climb / dive in planes'],
+  ['TAXI / SIREN / HORN / RADIO', 'Vehicle extras'],
+  ['MAP / CAM / ❚❚ / ⛶', 'Map, camera view, pause, full screen'],
+];
+
 const CONTROLS: [string, string][] = [
   ['↑ ↓ or W S', 'Walk forward / back • drive • plane speed'],
   ['← → ', 'Turn (walking, driving, flying)'],
@@ -268,7 +289,7 @@ export function ControlsScreen() {
       <div className="panel">
         <h1>CONTROLS</h1>
         <div className="controls-list">
-          {CONTROLS.map(([k, d]) => (
+          {(TOUCH ? TOUCH_CONTROLS : CONTROLS).map(([k, d]) => (
             <div key={k} className="ctrl">
               <kbd>{k}</kbd>
               <span>{d}</span>
@@ -511,7 +532,7 @@ export function MissionIntro() {
         </div>
         <ul>
           {intro.instructions.map((i) => (
-            <li key={i}>{i}</li>
+            <li key={i}>{tt(i)}</li>
           ))}
         </ul>
         <div className="intro-reward">
@@ -519,10 +540,10 @@ export function MissionIntro() {
         </div>
         <div className="row">
           <button className="btn" onClick={intro.decline}>
-            Not now (Esc)
+            Not now{TOUCH ? '' : ' (Esc)'}
           </button>
           <button className="btn primary" onClick={intro.accept}>
-            {intro.isActivity ? 'Start' : 'Start mission'} (Enter)
+            {intro.isActivity ? 'Start' : 'Start mission'}{TOUCH ? '' : ' (Enter)'}
           </button>
         </div>
       </div>
@@ -552,7 +573,7 @@ export function MissionResult() {
             </button>
           )}
           <button className="btn primary" onClick={() => G().closeResult()}>
-            Continue (Enter)
+            Continue{TOUCH ? '' : ' (Enter)'}
           </button>
         </div>
       </div>
@@ -576,13 +597,13 @@ export function Shop() {
               <div className="si-main">
                 <b>{it.name}</b>
                 {it.tag && <i>{it.tag}</i>}
-                {it.desc && <span>{it.desc}</span>}
+                {it.desc && <span>{tt(it.desc)}</span>}
               </div>
               {it.price !== undefined && <div className={`si-price ${G().progress.cash < it.price ? 'cant' : ''}`}>{it.price === 0 ? 'FREE' : formatMoney(it.price)}</div>}
             </button>
           ))}
         </div>
-        <div className="hint">Esc to close</div>
+        {!TOUCH && <div className="hint">Esc to close</div>}
       </div>
     </div>
   );

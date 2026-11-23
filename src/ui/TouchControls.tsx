@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { gameRef } from '../gameRef';
+import { goFullscreen, toggleFullscreen } from './device';
 import { useUI } from './store';
 
-/** true on phones / tablets (touch-first screens) */
-export const isTouchDevice = () => typeof window !== 'undefined' && (new URLSearchParams(location.search).has('touch') || window.matchMedia?.('(pointer: coarse)').matches || 'ontouchstart' in window || navigator.maxTouchPoints > 0);
+export { isTouchDevice } from './device';
 
 // Touch controls feed the same keyboard codes the game already understands.
 const press = (code: string) => window.dispatchEvent(new KeyboardEvent('keydown', { code, key: code }));
@@ -112,7 +112,10 @@ function Stick() {
 export function TouchControls() {
   const screen = useUI((s) => s.screen);
   const inVehicle = useUI((s) => s.hud.inVehicle);
-  const isPlane = useUI((s) => s.hud.altitude !== null && s.hud.altitude !== undefined);
+  const kind = useUI((s) => s.hud.vehicleKind);
+  const medkits = useUI((s) => s.hud.medkits);
+  const hurt = useUI((s) => s.hud.health < s.hud.maxHealth);
+  const isPlane = kind === 'plane';
   const look = useRef<{ id: number; x: number; y: number } | null>(null);
 
   // drag anywhere on the right side of the screen to look around
@@ -153,52 +156,85 @@ export function TouchControls() {
       <div className="tc-top">
         <Btn code="KeyP" label="❚❚" hold={false} className="small" />
         <Btn code="KeyM" label="MAP" hold={false} className="small" />
-        <Btn code="KeyE" label="E" hold={false} className="small" />
+        <Btn code="KeyC" label="CAM" hold={false} className="small" />
+        {!!document.documentElement.requestFullscreen && (
+          <button className="tc-btn small" onPointerDown={(e) => (e.preventDefault(), toggleFullscreen())}>
+            ⛶
+          </button>
+        )}
       </div>
       <Stick />
       <div className="tc-right">
         {!inVehicle && (
           <>
-            <Btn code="KeyK" label="FIRE" className="fire" />
-            <Btn code="Space" label="JUMP" />
-            <Btn code="KeyG" label="GUN" hold={false} />
             <Btn code="KeyR" label="RELOAD" hold={false} className="small" />
             <Btn code="KeyQ" label="ROLL" hold={false} className="small" />
+            {medkits > 0 && hurt ? <Btn code="KeyH" label="MED" hold={false} className="small med" /> : <span />}
+            <Btn code="KeyE" label="USE" hold={false} className="use" />
+            <Btn code="KeyG" label="GUN" hold={false} />
+            <Btn code="KeyF" label="CAR" hold={false} className="enter" />
+            <span />
+            <Btn code="Space" label="JUMP" />
+            <Btn code="KeyK" label="FIRE" className="fire" />
           </>
         )}
         {inVehicle && !isPlane && (
           <>
-            <Btn code="ShiftLeft" label="NITRO" className="fire" />
-            <Btn code="Space" label="DRIFT" />
+            {kind === 'taxi' ? <Btn code="KeyT" label="TAXI" hold={false} className="small" /> : kind === 'police' ? <Btn code="KeyL" label="SIREN" hold={false} className="small" /> : <span />}
             <Btn code="KeyH" label="HORN" className="small" />
+            <Btn code="KeyR" label="RADIO" hold={false} className="small" />
+            <Btn code="KeyE" label="USE" hold={false} className="use" />
+            <span />
+            <Btn code="KeyF" label="EXIT" hold={false} className="enter" />
+            <span />
+            <Btn code="Space" label="DRIFT" />
+            <Btn code="ShiftLeft" label="NITRO" className="fire" />
           </>
         )}
         {inVehicle && isPlane && (
           <>
-            <Btn code="Space" label="▲ UP" className="fire" />
+            <span />
+            <span />
+            <Btn code="KeyF" label="EXIT" hold={false} className="enter" />
+            <span />
             <Btn code="ShiftLeft" label="▼ DOWN" />
+            <Btn code="Space" label="▲ UP" className="fire" />
           </>
         )}
-        <Btn code="KeyF" label={inVehicle ? 'EXIT' : 'CAR'} hold={false} className="enter" />
       </div>
     </div>
   );
 }
 
-/** Ask phone players to turn the phone sideways. */
+/** Phones held upright: offer fullscreen landscape, or let them play upright anyway. */
 export function RotateHint() {
   const [portrait, setPortrait] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
   useEffect(() => {
     const f = () => setPortrait(window.innerHeight > window.innerWidth * 1.1);
     f();
     window.addEventListener('resize', f);
-    return () => window.removeEventListener('resize', f);
+    screen.orientation?.addEventListener?.('change', f);
+    return () => {
+      window.removeEventListener('resize', f);
+      screen.orientation?.removeEventListener?.('change', f);
+    };
   }, []);
-  if (!portrait) return null;
+  if (!portrait || dismissed) return null;
   return (
     <div className="rotate-hint">
       <div className="rotate-icon">📱↻</div>
-      <div>Turn your phone sideways to play</div>
+      <div>Turn your phone sideways for the best view</div>
+      <div className="row">
+        {!!document.documentElement.requestFullscreen && (
+          <button className="btn primary" onClick={goFullscreen}>
+            Full screen
+          </button>
+        )}
+        <button className="btn" onClick={() => setDismissed(true)}>
+          Play upright
+        </button>
+      </div>
     </div>
   );
 }

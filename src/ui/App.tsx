@@ -4,9 +4,9 @@ import { HUD } from './HUD';
 import { MapScreen } from './MapScreen';
 import { CharSelect, ControlsScreen, Death, Inventory, Loading, MainMenu, MissionIntro, MissionResult, PauseMenu, SettingsScreen, Shop, StatsScreen } from './Menus';
 import { useUI } from './store';
-import { RotateHint, TouchControls, isTouchDevice } from './TouchControls';
+import { TOUCH } from './device';
+import { RotateHint, TouchControls } from './TouchControls';
 
-const TOUCH = isTouchDevice();
 if (TOUCH) document.body.classList.add('touch');
 
 export function App() {

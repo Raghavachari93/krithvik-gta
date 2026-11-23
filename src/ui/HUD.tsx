@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { formatMoney, formatTime } from '../game/core/math';
 import { Minimap } from './Minimap';
+import { TOUCH, tt } from './device';
 import { useUI } from './store';
 
 function Stars({ n, searching }: { n: number; searching: boolean }) {
@@ -180,7 +181,7 @@ export function HUD() {
       </div>
       {(h.objective || h.activityName) && (
         <div className="objective">
-          {h.activityName && !h.objective && <div className="obj-hint">{h.activityName}</div>}
+          {h.activityName && !h.objective && <div className="obj-hint">{tt(h.activityName)}</div>}
           {h.objective && (
             <>
               <div className="obj-label">{h.missionActive ? 'MISSION' : h.activityName || 'ACTIVITY'}</div>
@@ -231,14 +232,23 @@ export function HUD() {
                 <span> / {h.ammo}</span>
               </div>
             )}
-            <div className="medkits">✚ {h.medkits} med kits (H)</div>
+            <div className="medkits">✚ {h.medkits} med kits{TOUCH ? '' : ' (H)'}</div>
           </div>
         )}
       </div>
       <Crosshair />
       {h.prompt && screen === 'playing' && (
-        <div className="prompt">
-          <kbd>E</kbd> {h.prompt}
+        <div
+          className="prompt"
+          onPointerDown={(e) => {
+            if (!TOUCH) return;
+            e.preventDefault();
+            e.stopPropagation();
+            window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE', key: 'e' }));
+            setTimeout(() => window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyE', key: 'e' })), 60);
+          }}
+        >
+          <kbd>{TOUCH ? 'TAP' : 'E'}</kbd> {h.prompt}
         </div>
       )}
       <Notes />

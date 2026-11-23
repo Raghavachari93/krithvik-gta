@@ -860,6 +860,7 @@ export class Game {
       letterbox: this.state === 'cutscene',
       reloading: p.reloadT > 0,
       medkits: p.medkits,
+      vehicleKind: !v ? '' : v.spec.police ? 'police' : v.spec.cls === 'taxi' ? 'taxi' : v.spec.plane ? 'plane' : 'car',
       ...(this.missions.active || this.activities.current ? {} : { objective: '', objectiveDetail: '', timer: null }),
     });
   }

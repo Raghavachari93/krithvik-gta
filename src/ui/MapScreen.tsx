@@ -3,6 +3,7 @@ import { G } from '../gameRef';
 import { WORLD } from '../game/constants';
 import { getMapImage, mapToWorld, worldToMap, MAP_SCALE } from './mapImage';
 import { drawBlipGlyph } from './Minimap';
+import { TOUCH } from './device';
 import type { Blip } from '../game/systems/Markers';
 
 const LEGEND: { kind: Blip['kind']; label: string; glyph: string; color: string }[] = [
@@ -26,6 +27,10 @@ export function MapScreen() {
   const [hover, setHover] = useState<Blip | null>(null);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const drag = useRef<{ x: number; y: number; cx: number; cz: number; moved: boolean } | null>(null);
+  // active touches / mouse for pan + pinch zoom
+  const pts = useRef(new Map<number, { x: number; y: number }>());
+  const pinch = useRef<{ d: number; zoom: number } | null>(null);
+  const [legend, setLegend] = useState(!TOUCH);
 
   useEffect(() => {
     let raf = 0;
@@ -137,29 +142,62 @@ export function MapScreen() {
         ref={ref}
         className="bigmap"
         onWheel={(e) => setView((v) => ({ ...v, zoom: Math.max(0.35, Math.min(5, v.zoom * (e.deltaY < 0 ? 1.15 : 0.87))) }))}
-        onMouseDown={(e) => {
-          drag.current = { x: e.clientX, y: e.clientY, cx: view.cx, cz: view.cz, moved: false };
+        onPointerDown={(e) => {
+          (e.target as HTMLCanvasElement).setPointerCapture?.(e.pointerId);
+          pts.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+          if (pts.current.size === 1) drag.current = { x: e.clientX, y: e.clientY, cx: view.cx, cz: view.cz, moved: false };
+          else if (pts.current.size === 2) {
+            const [p, q] = [...pts.current.values()];
+            pinch.current = { d: Math.hypot(p.x - q.x, p.y - q.y), zoom: view.zoom };
+            if (drag.current) drag.current.moved = true; // a pinch is never a tap
+          }
         }}
-        onMouseMove={(e) => {
+        onPointerMove={(e) => {
           const r = (e.target as HTMLCanvasElement).getBoundingClientRect();
-          setHover(findBlip(e.clientX - r.left, e.clientY - r.top));
+          if (e.pointerType === 'mouse') setHover(findBlip(e.clientX - r.left, e.clientY - r.top));
+          if (!pts.current.has(e.pointerId)) return;
+          pts.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+          if (pinch.current && pts.current.size >= 2) {
+            const [p, q] = [...pts.current.values()];
+            const k = Math.hypot(p.x - q.x, p.y - q.y) / Math.max(1, pinch.current.d);
+            const z0 = pinch.current.zoom;
+            setView((v) => ({ ...v, zoom: Math.max(0.35, Math.min(5, z0 * k)) }));
+            return;
+          }
           const d = drag.current;
           if (!d) return;
           const dx = e.clientX - d.x,
             dy = e.clientY - d.y;
-          if (Math.abs(dx) + Math.abs(dy) > 4) d.moved = true;
+          if (Math.abs(dx) + Math.abs(dy) > (e.pointerType === 'mouse' ? 4 : 10)) d.moved = true;
+          if (!d.moved) return;
           const k = 1 / (view.zoom * MAP_SCALE);
           setView((v) => ({ ...v, cx: Math.max(WORLD.minX, Math.min(WORLD.maxX, d.cx - dx * k)), cz: Math.max(WORLD.minZ, Math.min(WORLD.maxZ, d.cz - dy * k)) }));
         }}
-        onMouseUp={(e) => {
+        onPointerUp={(e) => {
+          pts.current.delete(e.pointerId);
+          if (pts.current.size < 2) pinch.current = null;
+          if (pts.current.size > 0) {
+            // keep panning with the remaining finger from where it is now
+            const [p] = [...pts.current.values()];
+            drag.current = { x: p.x, y: p.y, cx: view.cx, cz: view.cz, moved: true };
+            return;
+          }
           const d = drag.current;
           drag.current = null;
           if (d && !d.moved && e.button === 0) {
             const r = (e.target as HTMLCanvasElement).getBoundingClientRect();
-            const w = screenToWorld(e.clientX - r.left, e.clientY - r.top);
+            const sx = e.clientX - r.left,
+              sy = e.clientY - r.top;
+            if (e.pointerType !== 'mouse') setHover(findBlip(sx, sy));
+            const w = screenToWorld(sx, sy);
             G().nav.setWaypoint(w.x, w.z);
             G().audio.ui();
           }
+        }}
+        onPointerCancel={(e) => {
+          pts.current.delete(e.pointerId);
+          pinch.current = null;
+          drag.current = null;
         }}
         onContextMenu={(e) => {
           e.preventDefault();
@@ -168,8 +206,13 @@ export function MapScreen() {
       />
       <div className="map-panel">
         <h2>NEON BAY</h2>
-        <p className="hint">Click to set a GPS waypoint • Right-click to clear • Drag to pan • Scroll to zoom</p>
-        <div className="legend">
+        <p className="hint">{TOUCH ? 'Tap to set a GPS waypoint • Drag to move • Pinch to zoom' : 'Click to set a GPS waypoint • Right-click to clear • Drag to pan • Scroll to zoom'}</p>
+        {TOUCH && (
+          <button className="btn small" onClick={() => setLegend((l) => !l)}>
+            {legend ? 'Hide legend' : 'Show legend'}
+          </button>
+        )}
+        {legend && <div className="legend">
           {LEGEND.map((l) => (
             <label key={l.kind} className={hidden.has(l.kind) ? 'off' : ''}>
               <input
@@ -190,7 +233,7 @@ export function MapScreen() {
               {l.label}
             </label>
           ))}
-        </div>
+        </div>}
         {hover && <div className="hoverinfo">{hover.label}</div>}
         <button
           className="btn small"
@@ -201,8 +244,13 @@ export function MapScreen() {
         >
           Center on me
         </button>
+        {TOUCH && (
+          <button className="btn small" onClick={() => G().nav.clearWaypoint()}>
+            Clear GPS
+          </button>
+        )}
         <button className="btn small" onClick={() => G().resume()}>
-          Close map (M)
+          {TOUCH ? 'Close map' : 'Close map (M)'}
         </button>
       </div>
     </div>

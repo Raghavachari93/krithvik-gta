@@ -1189,3 +1189,71 @@ body.touch .hud-bl { top: 8px; bottom: auto; left: max(8px, env(safe-area-inset-
 body.touch .hud-tr { top: 6px; right: max(10px, env(safe-area-inset-right)); transform: scale(0.72); transform-origin: top right; }
 body.touch .hud-br { top: 92px; bottom: auto; right: max(10px, env(safe-area-inset-right)); transform: scale(0.55); transform-origin: top right; }
 body.touch .notes { top: 210px; right: 10px; transform: scale(0.75); transform-origin: top right; }
+
+/* ---------------- phones: menus that fit and scroll ---------------- */
+.panel, .charselect, .intro-card, .map-panel, .shop-items { touch-action: pan-y; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+.screen { height: 100dvh; }
+.panel { max-height: 92dvh; }
+.rotate-hint .row { display: flex; gap: 12px; margin-top: 6px; }
+.rotate-hint .btn { min-width: 0; font-size: 16px; }
+.tc-btn.use { background: rgba(255, 208, 0, 0.3); border-color: #ffd000; }
+.tc-btn.med { background: rgba(57, 255, 136, 0.35); border-color: #39ff88; }
+.tc-right > span { display: block; }
+body.touch .prompt { pointer-events: auto; bottom: max(18px, env(safe-area-inset-bottom)); font-size: 16px; padding: 8px 14px; cursor: pointer; max-width: 50vw; white-space: normal; text-align: center; }
+body.touch .prompt kbd { background: rgba(255, 208, 0, 0.35); border-color: #ffd000; font-size: 12px; }
+body.touch .notes { top: 64px; right: auto; left: 50%; transform: translateX(-50%); align-items: center; max-width: 46vw; }
+body.touch .note { font-size: 13px; padding: 5px 10px; text-align: center; }
+body.touch .bigmap { touch-action: none; }
+body.touch .btn:hover:not(:disabled) { transform: none; }
+body.touch .card:hover { transform: none; }
+
+@media (max-height: 560px), (max-width: 600px) {
+  .logo { font-size: clamp(30px, 8vh, 56px); }
+  .tagline { font-size: 12px; letter-spacing: 0.2em; margin-bottom: 4px; }
+  .menu-left { gap: 8px; left: max(5vw, env(safe-area-inset-left)); max-width: 90vw; }
+  .menu-buttons { gap: 5px; }
+  .btn { font-size: 15px; padding: 8px 16px; min-width: 200px; }
+  .menu-foot { margin-top: 4px; font-size: 11px; max-width: 80vw; }
+
+  .charselect { padding: 8px 12px 0; overflow-y: auto; justify-content: flex-start; }
+  .charselect h1, .panel h1 { font-size: 20px; margin: 0 0 8px; letter-spacing: 0.15em; }
+  .cards { gap: 10px; flex-wrap: nowrap; }
+  .card { width: 150px; padding: 6px; }
+  .figure { width: 64px; height: 128px; }
+  .card-name { font-size: 16px; }
+  .card-tag { font-size: 10px; }
+  .char-detail { margin-top: 8px; padding: 6px 14px; }
+  .char-detail p { font-size: 13px; margin-bottom: 4px; }
+  .stat { font-size: 11px; margin: 2px 0; grid-template-columns: 80px 1fr; }
+  .charselect .row { position: sticky; bottom: 0; padding: 8px 0 10px; margin-top: 6px; width: min(700px, 94vw); justify-content: center;
+    background: linear-gradient(transparent, rgba(10, 6, 20, 0.95) 35%); }
+
+  .panel { padding: 14px 18px; min-width: 0; width: min(95vw, 720px); max-height: 94dvh; }
+  .panel h3 { margin: 10px 0 6px; }
+  .pause-panel { min-width: 0; }
+  .intro-card { margin: 0 0 8px max(8px, env(safe-area-inset-left)); padding: 12px 16px; max-height: 92dvh; overflow-y: auto; width: min(560px, 70vw); }
+  .intro-card h1 { font-size: 22px; }
+  .intro-card ul { margin: 6px 0; font-size: 14px; }
+  .intro-text { font-size: 14px; }
+  .map-panel { top: 8px; left: max(8px, env(safe-area-inset-left)); width: 220px; padding: 10px 12px; gap: 6px; max-height: calc(100dvh - 16px); overflow-y: auto; }
+  .map-panel h2 { font-size: 20px; }
+  .map-panel .hint { font-size: 12px; margin: 0; }
+  .subtitle { font-size: 15px; bottom: 20vh; max-width: 60vw; }
+  .big-title { font-size: 40px; }
+}
+
+/* phones held upright */
+@media (orientation: portrait) and (max-width: 600px) {
+  body.touch .tc-stick { width: 120px; height: 120px; left: 16px; bottom: max(20px, env(safe-area-inset-bottom)); }
+  body.touch .tc-knob { width: 50px; height: 50px; }
+  body.touch .tc-btn { width: 52px; height: 52px; font-size: 11px; }
+  body.touch .tc-btn.fire { width: 66px; height: 66px; }
+  body.touch .tc-btn.small { width: 42px; height: 42px; font-size: 9px; }
+  body.touch .tc-right { right: 10px; bottom: max(16px, env(safe-area-inset-bottom)); gap: 6px; }
+  body.touch .notes { top: 120px; max-width: 80vw; }
+  body.touch .prompt { bottom: auto; top: 38%; max-width: 86vw; }
+  body.touch .hud-br { top: 120px; }
+  body.touch .tc-top { top: 190px; left: max(10px, env(safe-area-inset-left)); transform: none; flex-direction: column; gap: 8px; }
+  .charselect .cards { flex-wrap: wrap; }
+  .intro-card { width: 94vw; margin: 0 3vw 8px; }
+}

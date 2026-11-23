@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { tt } from './device';
 
 export type Screen =
   | 'loading'
@@ -106,6 +107,7 @@ export interface Hud {
   drift: { score: number; combo: number; goal: number } | null;
   reloading: boolean;
   medkits: number;
+  vehicleKind: string;
 }
 
 export interface ShopItem {
@@ -207,6 +209,7 @@ const emptyHud: Hud = {
   drift: null,
   reloading: false,
   medkits: 0,
+  vehicleKind: '',
 };
 
 function loadSettings(): Settings {
@@ -255,7 +258,7 @@ export class UIBridge {
     useUI.setState({ prevScreen: s.screen, screen });
   }
   notify(text: string, kind: NoteKind = 'info') {
-    const notes = [...useUI.getState().notes, { id: NID++, text, kind, t: performance.now() }].slice(-5);
+    const notes = [...useUI.getState().notes, { id: NID++, text: tt(text), kind, t: performance.now() }].slice(-5);
     useUI.setState({ notes });
   }
   private lastPrompt: string | null = null;
